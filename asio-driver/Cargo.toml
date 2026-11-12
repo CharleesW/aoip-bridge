@@ -1,0 +1,13 @@
+[package]
+name = "aoip-asio"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Driver ASIO virtual do AoIP Bridge: o programa de audio (REAPER etc.) fala direto com a rede AES67"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aoip-core = { path = "../core" }
+aoip-engine = { path = "../engine" }

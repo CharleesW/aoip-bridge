@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AoIP Bridge</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#14161a;--panel:#1d2026;--line:#2c313a;--text:#e6e8ec;--dim:#8d94a1;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#f5b84b;--on:#3ea6ff;--sel:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px}
+header .sp{flex:1}
+button,select,input{font:inherit;color:var(--text);background:#262a32;border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}button:hover{border-color:#4a5160}
+button.primary{background:var(--on);border-color:var(--on);color:#04121f;font-weight:600}
+button.ghost{background:none}
+main{max-width:1280px;margin:0 auto;padding:18px 20px 60px;display:grid;gap:16px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+h2{font-size:14px;margin:0 0 4px;font-weight:600}
+.sub{color:var(--dim);margin:0 0 12px;font-size:13px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.step{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;grid-template-columns:22px 1fr;gap:2px 8px}
+.step b{font-weight:600}.step small{grid-column:2;color:var(--dim)}
+.dot{width:12px;height:12px;border-radius:50%;margin-top:4px;background:var(--dim)}
+.ok .dot{background:var(--ok)}.bad .dot{background:var(--bad)}.warn .dot{background:var(--warn)}
+.alert{border-left:3px solid var(--bad);background:#2a1d1f;padding:10px 12px;border-radius:6px;margin-top:12px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:end}
+.form label{display:grid;gap:4px;color:var(--dim);font-size:12px}
+.form input,.form select{width:100%}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.bar .sp{flex:1}
+.gridwrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:separate;border-spacing:0}
+th,td{padding:0}
+thead th{position:sticky;top:0;background:var(--panel);z-index:2;font-weight:500;font-size:11px;color:var(--dim);height:26px;min-width:26px;text-align:center;border-bottom:1px solid var(--line)}
+thead tr.grp th{height:22px;color:var(--text);border-left:1px solid var(--line);font-size:11px;white-space:nowrap;overflow:hidden;max-width:0}
+tbody th{position:sticky;left:0;background:var(--panel);z-index:1;text-align:left;font-weight:500;font-size:12px;white-space:nowrap;padding:0 10px 0 8px;border-right:1px solid var(--line);min-width:120px}
+tbody th .m{display:inline-block;vertical-align:middle;width:36px;height:6px;background:#0d0f12;border-radius:3px;margin-left:8px;overflow:hidden}
+tbody th .m i{display:block;height:100%;width:0;background:var(--ok)}
+thead th:first-child{left:0;z-index:3;text-align:left;padding-left:8px}
+td{width:26px;height:26px;border-right:1px solid #23272e;border-bottom:1px solid #23272e;cursor:pointer;text-align:center;font-size:9px;color:#04121f}
+td.g8{border-right-color:var(--line)}
+td:hover{background:#2a303a}
+td.on{background:var(--on)}td.on.att{background:#2b6ea8;color:#dbeeff}td.on.boost{background:var(--warn)}
+td.sel{outline:2px solid var(--sel);outline-offset:-2px}
+.slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:14px}
+.slot{border:1px solid var(--line);border-radius:8px;padding:10px;display:grid;gap:6px}
+.slot select{width:100%}.slot small{color:var(--dim)}
+.pill{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim)}
+.pill.ok{color:var(--ok);border-color:#1f5e44}.pill.bad{color:var(--bad);border-color:#6b2c2c}
+.hint{color:var(--dim);font-size:13px;padding:14px;text-align:center}
+#gain{display:flex;gap:10px;align-items:center;min-height:34px}
+#gain input{flex:0 0 220px;padding:0}
+details summary{cursor:pointer;font-weight:600}
+code{background:#0d0f12;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>AoIP Bridge</h1><span class="pill" id="pill">iniciando…</span>
+  <span class="sp"></span>
+  <button class="ghost" id="quit" title="Fecha o programa e para o áudio">Encerrar</button>
+</header>
+<main>
+  <section>
+    <h2>Situação</h2>
+    <p class="sub">Quando os quatro itens estiverem verdes, o áudio está passando.</p>
+    <div class="steps" id="steps"></div>
+    <div id="alert"></div>
+  </section>
+
+  <section id="setup">
+    <details id="setupBox">
+      <summary>Configuração</summary>
+      <p class="sub" style="margin-top:8px">Mudanças aqui reiniciam o áudio por alguns segundos.</p>
+      <div class="form">
+        <label>Placa de áudio<select id="fDev"></select></label>
+        <label>IP deste computador na rede de áudio<input id="fIf" placeholder="ex.: 192.168.1.50"></label>
+        <label>Nome que aparece no Dante Controller<input id="fName" maxlength="24"></label>
+        <label>Canais enviados para a rede<select id="fTx"></select></label>
+        <label>Taxa de amostragem da placa<select id="fRate">
+          <option value="0">Automática: 48000 Hz se a placa aceitar</option>
+          <option value="44100">44100 Hz (convertido para a rede)</option>
+          <option value="48000">48000 Hz (igual à rede, sem conversão)</option>
+          <option value="88200">88200 Hz (convertido para a rede)</option>
+          <option value="96000">96000 Hz (convertido para a rede)</option></select></label>
+        <label>Folga contra falhas (latência extra)<select id="fLat">
+          <option value="2">2 ms: rede cabeada e computador folgado</option>
+          <option value="4">4 ms: recomendado</option>
+          <option value="8">8 ms: se houver estalos</option>
+          <option value="16">16 ms: Wi-Fi ou computador lento</option></select></label>
+        <button class="primary" id="fSave">Salvar e iniciar</button>
+      </div>
+    </details>
+  </section>
+
+  <section id="txSec">
+    <h2>Enviar para a rede</h2>
+    <p class="sub">Linhas: entradas da placa. Colunas: canais que aparecem no Dante Controller, em fluxos de 8. Clique para ligar ou desligar.</p>
+    <div class="bar"><button data-preset="tx:identity">1 para 1</button><button data-preset="tx:clear">Limpar</button><span class="sp"></span><div id="gain"></div></div>
+    <div class="gridwrap"><table id="txGrid"></table></div>
+  </section>
+
+  <section id="rxSec">
+    <h2>Receber da rede</h2>
+    <p class="sub">Escolha até 4 fluxos AES67 e ligue os canais deles nas saídas da placa.</p>
+    <div class="slots" id="slots"></div>
+    <div class="bar"><button data-preset="rx:identity">1 para 1</button><button data-preset="rx:clear">Limpar</button></div>
+    <div class="gridwrap"><table id="rxGrid"></table></div>
+    <div class="hint" id="rxHint"></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SLOT = 'ABCD';
+let S = null, sel = null, shape = {}, formTouched = false, offline = 0;
+
+async function post(path, params) {
+  const q = new URLSearchParams(params).toString();
+  const r = await fetch(path + '?' + q, {method: 'POST', headers: {'X-AoIP': '1'}});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) showAlert(j.error || 'O comando falhou.');
+  return r.ok;
+}
+function showAlert(msg) { $('alert').innerHTML = msg ? `<div class="alert">${esc(msg)}</div>` : ''; }
+
+function step(cls, title, text) {
+  return `<div class="step ${cls}"><span class="dot"></span><b>${esc(title)}</b><small>${text}</small></div>`;
+}
+function renderSteps() {
+  const h = [];
+  if (S.running) h.push(step('ok', 'Placa de áudio', `${esc(S.device)}: ${S.ins} entradas, ${S.outs} saídas, ${S.rate} Hz${S.rate && S.rate !== 48000 ? ' (convertido para os 48000 Hz da rede)' : ''}`));
+  else h.push(step(S.cfg.device ? 'bad' : 'warn', 'Placa de áudio', S.cfg.device ? 'Não abriu. Veja o aviso abaixo.' : 'Escolha a placa em Configuração.'));
+  h.push(step(S.iface ? 'ok' : 'warn', 'Rede', S.iface ? `Usando o IP ${esc(S.iface)}` : 'Informe o IP em Configuração.'));
+  if (!S.running) h.push(step('', 'Relógio da rede (PTP)', 'Aguardando a placa.'));
+  else if (S.ptp) h.push(step('ok', 'Relógio da rede (PTP)', `Sincronizado com ${esc(S.gm)}`));
+  else h.push(step('bad', 'Relógio da rede (PTP)', 'Não encontrado. No Dante Controller, abra um dispositivo, vá em <b>AES67 Config</b>, ligue o AES67 e reinicie o dispositivo.'));
+  const flows = Math.ceil(S.ntx / 8);
+  if (S.running && S.ptp) h.push(step('ok', 'Enviando', `${S.ntx} canais em ${flows} fluxo(s) chamados “${esc(S.cfg.name)} : 1…”. Podem levar 30 s para aparecer no Dante Controller.`));
+  else h.push(step('', 'Enviando', 'Começa quando o relógio sincronizar.'));
+  $('steps').innerHTML = h.join('');
+  const ok = S.running && S.ptp;
+  $('pill').className = 'pill ' + (ok ? 'ok' : 'bad');
+  $('pill').textContent = ok ? 'funcionando' : (S.running ? 'sem relógio' : 'parado');
+  if (S.error) showAlert(S.error);
+  else if (S.under > 0 && S.running) showAlert(`O áudio falhou ${S.under} vez(es). Se ouvir estalos, aumente a folga em Configuração.`);
+  else showAlert('');
+}
+
+function renderForm() {
+  if (formTouched) return;
+  const names = S.devices.map(d => d.name);
+  if (S.cfg.device && !names.includes(S.cfg.device)) names.unshift(S.cfg.device);
+  $('fDev').innerHTML = (names.length ? '' : '<option value="">nenhuma placa encontrada</option>') +
+    names.map(n => { const d = S.devices.find(x => x.name === n);
+      return `<option value="${esc(n)}"${n === S.cfg.device ? ' selected' : ''}>${esc(n)}${d ? ` (${d.ins} ent / ${d.outs} saí)` : ' (desconectada)'}</option>`; }).join('');
+  $('fIf').value = S.cfg.iface || S.iface || '';
+  $('fName').value = S.cfg.name;
+  $('fTx').innerHTML = [0, 2, 8, 16, 24, 32, 64].map(n => `<option value="${n}"${n === S.cfg.tx ? ' selected' : ''}>${n ? n : 'Todas as entradas da placa'}</option>`).join('');
+  $('fLat').value = [2, 4, 8, 16].includes(S.cfg.latency) ? S.cfg.latency : 4;
+  $('fRate').value = [44100, 48000, 88200, 96000].includes(S.cfg.rate) ? S.cfg.rate : 0;
+  if (!S.running) $('setupBox').open = true;
+}
+
+function buildGrid(id, kind, rows, cols, rowName, colName, groups) {
+  let h = '<thead>';
+  if (groups) h += '<tr class="grp"><th></th>' + groups.map(g => `<th colspan="${g.n}" title="${esc(g.t)}">${esc(g.t)}</th>`).join('') + '</tr>';
+  h += '<tr><th></th>' + cols.map(c => `<th title="${esc(colName(c))}">${c + 1}</th>`).join('') + '</tr></thead><tbody>';
+  for (const r of rows) {
+    h += `<tr><th>${esc(rowName(r))}<span class="m"><i data-lv="${kind}:${r}"></i></span></th>`;
+    for (const c of cols) h += `<td data-k="${kind}" data-i="${r}" data-o="${c}" class="${(c + 1) % 8 === 0 ? 'g8' : ''}" title="${esc(rowName(r))} → ${esc(colName(c))}"></td>`;
+    h += '</tr>';
+  }
+  $(id).innerHTML = h + '</tbody>';
+}
+function paint(id, kind, points) {
+  const on = new Map(points.map(p => [p[0] + ':' + p[1], p[2]]));
+  for (const td of $(id).querySelectorAll('td')) {
+    const db = on.get(td.dataset.i + ':' + td.dataset.o);
+    const isSel = sel && sel.k === kind && sel.i == td.dataset.i && sel.o == td.dataset.o;
+    td.className = (td.classList.contains('g8') ? 'g8 ' : '') + (db !== undefined ? 'on ' + (db < 0 ? 'att' : db > 0 ? 'boost' : '') : '') + (isSel ? ' sel' : '');
+    td.textContent = db !== undefined && db !== 0 ? Math.round(db) : '';
+  }
+}
+function range(n) { return Array.from({length: n}, (_, i) => i); }
+
+function renderGrids() {
+  const chOf = s => { const f = S.flows.find(f => f.name === S.slots[s]); return f ? f.ch : 8; };
+  const rxRows = range(S.nrx).filter(c => S.slots[Math.floor(c / 8)] && c % 8 < chOf(Math.floor(c / 8)));
+  const key = [S.ins, S.ntx, S.outs, rxRows.join(), S.cfg.name, S.slots.join('|')].join('/');
+  $('txSec').style.display = $('rxSec').style.display = S.running ? '' : 'none';
+  if (!S.running) return;
+  if (shape.key !== key) {
+    shape.key = key;
+    const groups = range(Math.ceil(S.ntx / 8)).map(k => ({n: Math.min(8, S.ntx - k * 8), t: `${S.cfg.name} : ${k + 1}`}));
+    buildGrid('txGrid', 'tx', range(S.ins), range(S.ntx), r => `Entrada ${r + 1}`, c => `${S.cfg.name} : ${Math.floor(c / 8) + 1}, canal ${c % 8 + 1}`, groups);
+    buildGrid('rxGrid', 'rx', rxRows, range(S.outs), r => `${SLOT[Math.floor(r / 8)]}${r % 8 + 1}  ${S.slots[Math.floor(r / 8)]}`, c => `Saída ${c + 1}`);
+    $('rxGrid').parentElement.style.display = rxRows.length ? '' : 'none';
+  }
+  paint('txGrid', 'tx', S.tx); paint('rxGrid', 'rx', S.rx);
+  $('rxHint').textContent = rxRows.length ? '' : 'Escolha um fluxo acima para ver a matriz de recepção.';
+  for (const el of document.querySelectorAll('[data-lv]')) {
+    const [k, i] = el.dataset.lv.split(':');
+    const v = (k === 'tx' ? S.lvIn : S.lvRx)[i] || 0;
+    const db = v > 0 ? 20 * Math.log10(v) : -99;
+    el.style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%';
+    el.style.background = db > -1 ? 'var(--bad)' : db > -12 ? 'var(--warn)' : 'var(--ok)';
+  }
+  renderGain();
+}
+function renderGain() {
+  const g = $('gain');
+  if (!sel) { g.dataset.k = ''; g.innerHTML = '<span class="sub" style="margin:0">Clique num ponto ligado para ajustar o ganho.</span>'; return; }
+  const p = S[sel.k].find(p => p[0] == sel.i && p[1] == sel.o);
+  if (!p) { sel = null; return renderGain(); }
+  const id = `${sel.k}:${sel.i}:${sel.o}`;
+  if (g.dataset.k === id) { if (document.activeElement.id !== 'gs') $('gv').textContent = fmt(p[2]); return; }
+  g.dataset.k = id;
+  g.innerHTML = `<span>Ganho do ponto selecionado</span><input type="range" id="gs" min="-40" max="12" step="1" value="${p[2]}"><b id="gv">${fmt(p[2])}</b><button id="g0">0 dB</button>`;
+  const send = v => post('/api/point', {m: sel.k, i: sel.i, o: sel.o, db: v});
+  $('gs').oninput = e => { $('gv').textContent = fmt(+e.target.value); send(e.target.value); };
+  $('g0').onclick = () => { $('gs').value = 0; $('gv').textContent = fmt(0); send(0); };
+}
+const fmt = db => (db > 0 ? '+' : '') + db + ' dB';
+
+function renderSlots() {
+  if (document.activeElement && document.activeElement.closest('#slots')) return;
+  const usable = S.flows.filter(f => f.ok);
+  let h = '';
+  for (let s = 0; s < S.slots.length; s++) {
+    const cur = S.slots[s];
+    const names = usable.map(f => f.name);
+    if (cur && !names.includes(cur)) names.unshift(cur);
+    const state = !cur ? '<span class="pill">vazio</span>' : S.active[s] ? '<span class="pill ok">recebendo</span>' : '<span class="pill bad">aguardando o fluxo aparecer</span>';
+    h += `<div class="slot"><div><b>Fluxo ${SLOT[s]}</b> ${state}</div><select data-slot="${s}"><option value="">nenhum</option>` +
+      names.map(n => { const f = usable.find(x => x.name === n);
+        return `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}${f ? ` (${f.ch} canais)` : ''}</option>`; }).join('') + '</select></div>';
+  }
+  if (!usable.length) h += '<div class="slot"><small>Nenhum fluxo AES67 visto na rede ainda. No Dante Controller: abra o dispositivo que vai transmitir, <b>Create Multicast Flow</b>, marque <b>AES67</b> e escolha os canais. O fluxo aparece aqui em até 30 s.</small></div>';
+  const bad = S.flows.filter(f => !f.ok);
+  if (bad.length) h += `<div class="slot"><small>Fluxos incompatíveis (só 48 kHz): ${bad.map(f => esc(f.name)).join(', ')}</small></div>`;
+  $('slots').innerHTML = h;
+}
+
+document.addEventListener('click', async e => {
+  const td = e.target.closest('td[data-k]');
+  if (td) {
+    const {k, i, o} = td.dataset;
+    const on = td.classList.contains('on');
+    const same = sel && sel.k === k && sel.i == i && sel.o == o;
+    // 1o clique num ponto ligado seleciona; clicar de novo desliga.
+    if (on && !same) { sel = {k, i, o}; }
+    else { await post('/api/point', {m: k, i, o, db: on ? 'off' : 0}); sel = on ? null : {k, i, o}; }
+    return tick();
+  }
+  const pre = e.target.dataset.preset;
+  if (pre) { const [m, kind] = pre.split(':'); if (kind !== 'clear' || confirm('Desligar todos os pontos desta matriz?')) { await post('/api/preset', {m, kind}); tick(); } }
+});
+document.addEventListener('change', async e => {
+  if (e.target.dataset.slot !== undefined) { await post('/api/rx', {slot: e.target.dataset.slot, name: e.target.value}); e.target.blur(); tick(); }
+  if (e.target.closest('.form')) formTouched = true;
+});
+$('setup').addEventListener('input', () => formTouched = true);
+$('fSave').onclick = async () => {
+  if (!$('fDev').value) return showAlert('Escolha a placa de áudio.');
+  const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value});
+  if (ok) { formTouched = false; $('setupBox').open = false; $('pill').textContent = 'reiniciando…'; shape = {}; }
+};
+$('quit').onclick = async () => { if (confirm('Encerrar o programa? O áudio para de passar.')) { await post('/api/quit', {}); document.body.innerHTML = '<div class="hint" style="padding:80px">Programa encerrado. Pode fechar esta aba.</div>'; } };
+
+async function tick() {
+  try {
+    S = await (await fetch('/api/state')).json(); offline = 0;
+    renderSteps(); renderForm(); renderSlots(); renderGrids();
+  } catch (e) {
+    if (++offline > 3) { $('pill').className = 'pill bad'; $('pill').textContent = 'programa fechado'; }
+  }
+}
+tick(); setInterval(tick, 500);
+</script>
+</body>
+</html>

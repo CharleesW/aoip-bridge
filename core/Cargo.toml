@@ -1,0 +1,6 @@
+[package]
+name = "aoip-core"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Matriz de roteamento + AES67 (RTP L24, SDP, SAP, seguidor PTPv2) sem dependencias"

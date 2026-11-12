@@ -1,0 +1,13 @@
+[workspace]
+members = ["core", "engine", "bridge", "asio-driver"]
+default-members = ["core"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+
+# Copia local do asio-sys 0.2.6 com um ajuste para compilar o .exe a partir do macOS
+# (veja vendor/asio-sys/build.rs). So afeta o Windows.
+[patch.crates-io]
+asio-sys = { path = "vendor/asio-sys" }

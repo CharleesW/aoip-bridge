@@ -1,0 +1,16 @@
+[package]
+name = "aoip-bridge"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+aoip-core = { path = "../core" }
+aoip-engine = { path = "../engine" }
+
+[target.'cfg(not(windows))'.dependencies]
+cpal = "0.15"
+
+# No Windows o backend ASIO do cpal exige LLVM/clang instalado (veja o README).
+[target.'cfg(windows)'.dependencies]
+cpal = { version = "0.15", features = ["asio"] }

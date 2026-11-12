@@ -1,0 +1,8 @@
+target/
+dist/
+android/build/
+install.log
+*.log
+.DS_Store
+# Anotacoes internas de desenvolvimento (rede de casa, historico de testes)
+CLAUDE.md
