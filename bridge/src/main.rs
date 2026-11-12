@@ -15,9 +15,9 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// O driver ASIO virtual deste mesmo projeto: ele ja e a ponte com a rede, entao nao entra
+/// Os drivers virtuais deste mesmo projeto: eles ja sao a ponte com a rede, entao nao entra
 /// na lista de placas (abri-lo aqui so colocaria um segundo remetente no fluxo dele).
-const OWN_DRIVER: &str = "AoIP Bridge ASIO";
+const OWN_DRIVERS: [&str; 2] = ["AoIP Bridge ASIO", "AoIP Bridge"]; // Windows, macOS
 
 fn audio_host() -> cpal::Host {
     #[cfg(windows)]
@@ -32,7 +32,7 @@ fn list_devices(host: &cpal::Host) -> Vec<(String, usize, usize)> {
     let mut out: Vec<(String, usize, usize)> = Vec::new();
     for d in devices {
         let Ok(name) = d.name() else { continue };
-        if name == OWN_DRIVER {
+        if OWN_DRIVERS.contains(&name.as_str()) {
             continue;
         }
         let ins = d.default_input_config().map(|c| c.channels() as usize).unwrap_or(0);
@@ -135,8 +135,8 @@ fn start_engine(shared: &Arc<Shared>, host: &cpal::Host) -> Res<Engine> {
     if cfg.device.is_empty() {
         return Err("".into()); // primeira execucao: o painel pede a configuracao
     }
-    if cfg.device.to_lowercase().contains(&OWN_DRIVER.to_lowercase()) {
-        return Err(format!("\"{OWN_DRIVER}\" e o driver virtual deste mesmo programa e nao pode ser usado como placa aqui. Escolha a placa de som de verdade em Configuracao, ou feche este programa e use o driver direto no REAPER.").into());
+    if let Some(own) = OWN_DRIVERS.iter().find(|d| d.eq_ignore_ascii_case(cfg.device.trim())) {
+        return Err(format!("\"{own}\" e o driver virtual deste mesmo programa e nao pode ser usado como placa aqui. Escolha a placa de som de verdade em Configuracao, ou feche este programa e use o driver direto no REAPER.").into());
     }
     let iface = resolve_iface(&cfg)?;
 

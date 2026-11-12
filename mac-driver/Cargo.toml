@@ -1,0 +1,14 @@
+[package]
+name = "aoip-virtual"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Programa auxiliar da placa virtual do macOS: rede e painel (o driver fica so com o audio)"
+
+[[bin]]
+name = "aoip-virtual"
+path = "src/main.rs"
+
+[dependencies]
+aoip-core = { path = "../core" }
+aoip-engine = { path = "../engine" }

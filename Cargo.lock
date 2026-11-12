@@ -63,6 +63,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aoip-virtual"
+version = "0.1.0"
+dependencies = [
+ "aoip-core",
+ "aoip-engine",
+]
+
+[[package]]
 name = "asio-sys"
 version = "0.2.6"
 dependencies = [

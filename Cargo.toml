@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "engine", "bridge", "asio-driver"]
+members = ["core", "engine", "bridge", "asio-driver", "mac-driver"]
 default-members = ["core"]
 resolver = "2"
 

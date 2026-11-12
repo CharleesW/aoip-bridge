@@ -1,0 +1,35 @@
+AoIP Bridge para Mac - versao de teste 0.3
+===========================================
+
+O que vem no pacote
+- AoIPBridge.driver: placa de som virtual "AoIP Bridge", 32 entradas e 32 saidas, 48 kHz.
+  Qualquer programa de audio do Mac (REAPER, Logic, etc.) enxerga ela como uma placa comum.
+  O que o programa toca nas saidas vai para a rede; o que chega da rede aparece nas entradas.
+  E o equivalente, no Mac, ao driver "AoIP Bridge ASIO" do Windows.
+- AoIP Bridge.app: o programa que liga uma placa de som de verdade (ex.: Soundcraft Ui24R) a rede.
+
+Instalar
+1. Abra o Terminal, digite  bash  e um espaco, arraste o arquivo Instalar.command para a
+   janela e aperte Enter. (Dar dois cliques tambem funciona se o Mac nao bloquear.)
+2. Digite a senha de administrador do Mac quando pedir.
+3. O som do Mac para por um instante: e o sistema de audio reiniciando.
+
+Usar a placa virtual
+1. No programa de audio, escolha "AoIP Bridge" como dispositivo de entrada e de saida, 48000 Hz.
+2. Abra http://127.0.0.1:8788 no navegador: e o painel da placa (matriz de envio, fluxos a
+   receber, nome, quantidade de canais).
+3. Enquanto nenhum programa usa a placa, nada vai para a rede e o painel avisa que ela esta
+   parada. A rede liga sozinha quando um programa de audio comeca a usar a placa.
+4. Ao salvar a Configuracao, o som da placa falha por um ou dois segundos e volta.
+
+Como funciona por dentro
+- O driver (AoIPBridge.driver) so troca audio com um programa auxiliar (aoip-virtual), que o
+  instalador deixa sempre aberto em segundo plano. A rede e o painel ficam nesse auxiliar.
+
+Limites desta versao
+- So Macs com processador Intel (ainda nao ha versao para Apple Silicon).
+- Use rede por cabo. Em Wi-Fi o audio sofre pausas.
+- No Dante Controller os fluxos aparecem como transmissores AES67 (em azul); para receber,
+  escolha no painel um fluxo AES67 criado num aparelho Dante com "AES67 Mode" ligado.
+
+Remover: rode Desinstalar.command do mesmo jeito.
