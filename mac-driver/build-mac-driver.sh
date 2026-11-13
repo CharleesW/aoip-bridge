@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 cargo build --release -p aoip-virtual -p aoip-bridge
-VERSION="0.3"
+VERSION="0.4"
 OUT="dist/AoIP-Bridge-Mac/AoIPBridge.driver"
 rm -rf "$OUT" && mkdir -p "$OUT/Contents/MacOS"
 cp mac-driver/Info.plist "$OUT/Contents/Info.plist"

@@ -75,6 +75,12 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=user32");
     println!("cargo:rustc-link-search={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=asio");
+    // aoip-bridge: o SDK do ASIO e C++. O cc so declara a biblioteca C++ quando compila o
+    // libasio.a; nas compilacoes seguintes (libasio.a ja existe) a declaracao sumia e o link
+    // para windows-gnu falhava (__gxx_personality_seh0, operator new). Declara sempre aqui.
+    if env::var("TARGET").map_or(false, |t| t.ends_with("windows-gnu")) {
+        println!("cargo:rustc-link-lib=c++");
+    }
     println!("cargo:rustc-cfg=asio");
 
     // Check if bindings exist
@@ -136,6 +142,8 @@ fn create_lib(cpal_asio_dir: &Path) {
         .file("asio-link/helpers.cpp")
         .files(cpp_paths)
         .cpp(true)
+        // aoip-bridge: na compilacao cruzada para windows-gnu com o Zig, o cc nao pede a
+        // biblioteca C++ sozinho; sem ela o link falha (__gxx_personality_seh0, operator new).
         .compile("libasio.a");
 }
 

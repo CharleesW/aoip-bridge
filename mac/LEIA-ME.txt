@@ -1,4 +1,4 @@
-AoIP Bridge para Mac - versao de teste 0.3
+AoIP Bridge para Mac - versao de teste 0.4
 ===========================================
 
 O que vem no pacote

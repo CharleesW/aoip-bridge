@@ -14,7 +14,7 @@ export LIBCLANG_PATH="$CLT/usr/lib"
 ARGS="--target=x86_64-pc-windows-gnu -nostdinc -isystem $CLT/SDKs/MacOSX.sdk/usr/include/c++/v1 -isystem $RES -isystem $ZIG_DIR/lib/libc/include/any-windows-any"
 export BINDGEN_EXTRA_CLANG_ARGS="$ARGS" BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_gnu="$ARGS"
 cargo zigbuild --release -p aoip-bridge -p aoip-asio --target x86_64-pc-windows-gnu
-rm -rf dist && mkdir -p dist/AoIP-Bridge-Windows
+rm -rf dist/AoIP-Bridge-Windows && mkdir -p dist/AoIP-Bridge-Windows   # so a pasta do Windows: dist/ guarda os outros pacotes
 cp target/x86_64-pc-windows-gnu/release/aoip-bridge.exe target/x86_64-pc-windows-gnu/release/aoip_asio.dll windows/*.bat windows/LEIA-ME.txt dist/AoIP-Bridge-Windows/
-(cd dist && zip -q -r AoIP-Bridge-Windows-0.3-teste.zip AoIP-Bridge-Windows)
-echo "pronto: dist/AoIP-Bridge-Windows-0.3-teste.zip"
+(cd dist && rm -f AoIP-Bridge-Windows-0.4-teste.zip && zip -q -r AoIP-Bridge-Windows-0.4-teste.zip AoIP-Bridge-Windows)
+echo "pronto: dist/AoIP-Bridge-Windows-0.4-teste.zip"
