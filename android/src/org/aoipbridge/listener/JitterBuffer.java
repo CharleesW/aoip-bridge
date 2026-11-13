@@ -4,26 +4,38 @@ package org.aoipbridge.listener;
  * Fila estereo entre a rede e a saida de som. Guarda uma folga (`target` quadros) para
  * aguentar pacotes atrasados e corrige devagar a velocidade de leitura (ate 0,5 %) para
  * acompanhar o relogio de quem envia, que nunca e igual ao do celular.
+ *
+ * Folga automatica: com `maxFrames` maior que a folga inicial, cada vez que o som falha a
+ * folga cresce (metade a mais, no minimo 10 ms) ate `maxFrames`. Ela nunca diminui sozinha:
+ * se a rede melhorar, basta parar e ouvir de novo.
  */
 public final class JitterBuffer {
     private static final double MAX_CORRECTION = 0.005;
+    private static final int MIN_RAISE = 480; // 10 ms
     private final float[] data;      // estereo intercalado
     private final int capacity;      // em quadros
+    private final int maxTarget;
     private int head, fill;          // proximo quadro a ler, quadros guardados
     private double frac;             // posicao fracionaria entre head e head+1
     private double average;          // enchimento medio (suavizado)
     private boolean primed;
-    private final int target;
-    public long underruns, overruns;
+    private volatile int target;
+    public volatile long underruns, overruns, raises;
 
-    public JitterBuffer(int targetFrames) {
+    /** Folga fixa. */
+    public JitterBuffer(int targetFrames) { this(targetFrames, 0); }
+
+    /** Folga que comeca em `targetFrames` e pode crescer ate `maxFrames` (0 = fixa). */
+    public JitterBuffer(int targetFrames, int maxFrames) {
         target = Math.max(48, targetFrames);
-        capacity = target * 4 + 9600;
+        maxTarget = Math.max(target, maxFrames);
+        capacity = maxTarget * 4 + 9600;
         data = new float[capacity * 2];
     }
 
     public synchronized int fill() { return fill; }
     public int target() { return target; }
+    public boolean automatic() { return maxTarget > target || raises > 0; }
 
     public synchronized void push(float[] in, int frames) {
         for (int f = 0; f < frames; f++) {
@@ -69,6 +81,10 @@ public final class JitterBuffer {
                 java.util.Arrays.fill(out, f * 2, frames * 2, 0f);
                 primed = false;
                 underruns++;
+                if (target < maxTarget) {
+                    target = Math.min(maxTarget, target + Math.max(MIN_RAISE, target / 2));
+                    raises++;
+                }
                 return;
             }
             int a = head, b = (head + 1) % capacity;

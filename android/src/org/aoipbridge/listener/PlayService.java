@@ -49,7 +49,7 @@ public final class PlayService extends Service {
         } else {
             b = new Notification.Builder(this);
         }
-        return b.setSmallIcon(android.R.drawable.ic_media_play)
+        return b.setSmallIcon(R.drawable.ic_stat)
                 .setContentTitle("AoIP Escuta")
                 .setContentText("Tocando \"" + f.name + "\"")
                 .setContentIntent(open)

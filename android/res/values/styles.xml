@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="icon_bg">#171B21</color>
+    <!-- Tema claro (padrao); o escuro fica em values-night. Cores de docs/design/design-system.md. -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">#F4F6F8</item>
+        <item name="android:colorAccent">#1B7F69</item>
+        <item name="android:colorPrimary">#1B7F69</item>
+    </style>
+</resources>

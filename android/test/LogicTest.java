@@ -97,6 +97,47 @@ public final class LogicTest {
         jb.pull(o, 48);
         check(jb.fill() <= 480 && jb.overruns >= 1, "corta atraso acumulado: " + jb.fill());
 
+        // --- Baixa latencia: 10 ms de folga, rede estavel (cabo), saida lendo 5 ms por vez
+        jb = new JitterBuffer(10 * 48);
+        credit = 0;
+        for (int ms = 0; ms < 60_000; ms++) {
+            credit += 1.0003;
+            while (credit >= 1) { jb.push(tone, 48); credit -= 1; }
+            if (ms % 5 == 4) { float[] big = new float[480]; jb.pull(big, 240); }
+        }
+        check(jb.underruns == 0 && jb.raises == 0, "10 ms no cabo: " + jb.underruns);
+        check(jb.fill() < 48 * 20, "atraso continua baixo: " + jb.fill());
+
+        // --- Folga fixa nao cresce, mesmo falhando
+        jb = new JitterBuffer(10 * 48);
+        for (int ms = 0; ms < 3000; ms++) {
+            if (ms % 30 == 0) for (int k = 0; k < 30; k++) jb.push(tone, 48);
+            jb.pull(o, 48);
+        }
+        check(jb.underruns > 0 && jb.raises == 0 && jb.target() == 480 && !jb.automatic(), "fixa fica fixa");
+
+        // --- Automatica: comeca em 20 ms, rajadas de 30 ms -> cresce poucas vezes e para de falhar
+        jb = new JitterBuffer(20 * 48, 300 * 48);
+        check(jb.automatic(), "automatica");
+        long before = 0;
+        for (int ms = 0; ms < 60_000; ms++) {
+            if (ms % 30 == 0) for (int k = 0; k < 30; k++) jb.push(tone, 48);
+            jb.pull(o, 48);
+            if (ms == 10_000) before = jb.underruns;
+        }
+        check(jb.raises >= 1 && jb.raises <= 3, "cresceu poucas vezes: " + jb.raises);
+        check(jb.underruns == before, "depois de crescer, sem falhas: " + before + " -> " + jb.underruns);
+        check(jb.target() <= 80 * 48, "folga final moderada: " + jb.target() / 48 + " ms");
+
+        // --- Automatica nunca passa do maximo
+        jb = new JitterBuffer(20 * 48, 100 * 48);
+        for (int ms = 0; ms < 20_000; ms++) { if (ms % 400 == 0) for (int k = 0; k < 200; k++) jb.push(tone, 48); jb.pull(o, 48); }
+        check(jb.target() == 100 * 48, "para no maximo: " + jb.target() / 48);
+
+        // --- Placa de rede: cabo antes do Wi-Fi, dados moveis por ultimo
+        check(Receiver.rank("eth0") > Receiver.rank("wlan0") && Receiver.rank("wlan0") > Receiver.rank("rmnet_data0"), "ordem das redes");
+        check(Receiver.isCable("eth1") && !Receiver.isCable("wlan0"), "cabo");
+
         System.out.println("OK: " + checks + " verificacoes");
     }
 }

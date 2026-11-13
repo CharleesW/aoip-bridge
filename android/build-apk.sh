@@ -8,8 +8,9 @@ export JAVA_HOME="$(ls -d "$T"/jdk-17*/Contents/Home | head -1)"
 PATH="$JAVA_HOME/bin:$PATH"
 BT="$T/sdk/build-tools/34.0.0"
 PLAT="$T/sdk/platforms/android-34/android.jar"
-VERSION="0.2"
-rm -rf build && mkdir -p build/logic build/test build/classes build/dex ../dist
+VERSION="0.3.2"
+VERSION_CODE=5
+rm -rf build && mkdir -p build/logic build/test build/classes build/dex build/gen ../dist
 
 echo "== testes da logica (sem Android)"
 javac -nowarn -d build/logic src/org/aoipbridge/listener/{Sap,Rtp,JitterBuffer,Receiver}.java
@@ -18,10 +19,12 @@ java -ea -cp build/logic:build/test LogicTest
 [ "${1:-}" = "--so-testes" ] && exit 0
 
 echo "== aplicativo"
-javac -nowarn -source 8 -target 8 -cp "$PLAT" -d build/classes src/org/aoipbridge/listener/*.java 2>&1 | grep -v "bootstrap class path\|^1 warning\|system modules" || true
+# Recursos (icone, tema claro/escuro): compila, liga ao manifesto e gera o R.java.
+"$BT/aapt2" compile --dir res -o build/res.zip
+"$BT/aapt2" link -o build/base.apk --manifest AndroidManifest.xml -I "$PLAT" build/res.zip --java build/gen \
+    --min-sdk-version 23 --target-sdk-version 34 --version-code "$VERSION_CODE" --version-name "$VERSION"
+javac -nowarn -source 8 -target 8 -cp "$PLAT" -d build/classes src/org/aoipbridge/listener/*.java build/gen/org/aoipbridge/listener/R.java 2>&1 | grep -v "bootstrap class path\|^1 warning\|system modules" || true
 "$BT/d8" --release --lib "$PLAT" --min-api 23 --output build/dex $(find build/classes -name '*.class')
-"$BT/aapt2" link -o build/base.apk --manifest AndroidManifest.xml -I "$PLAT" \
-    --min-sdk-version 23 --target-sdk-version 34 --version-code 2 --version-name "$VERSION"
 (cd build/dex && zip -q -j ../base.apk classes.dex)
 "$BT/zipalign" -f 4 build/base.apk build/aligned.apk
 # Chave de assinatura de teste, guardada fora do projeto: a mesma chave permite atualizar o app.

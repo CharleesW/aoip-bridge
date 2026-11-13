@@ -32,7 +32,24 @@ public final class Receiver {
         this.threadSetup = threadSetup;
     }
 
-    /** Placa de rede para ouvir: a que tem `preferIp`, senao Wi-Fi/cabo com IPv4. */
+    /** Preferencia entre placas de rede: cabo, depois Wi-Fi; dados moveis nao trazem o audio. */
+    public static int rank(String name) {
+        if (isCable(name)) return 3;
+        if (name.startsWith("wlan")) return 2;
+        if (name.startsWith("rmnet") || name.startsWith("ccmni") || name.startsWith("v4-") || name.startsWith("dummy")) return 0;
+        return 1;
+    }
+
+    /** Adaptador de cabo de rede (no Android, os adaptadores USB aparecem como eth0, eth1...). */
+    public static boolean isCable(String name) { return name.startsWith("eth"); }
+
+    /** Primeiro endereco IPv4 da placa, ou "". */
+    public static String ipv4(NetworkInterface n) {
+        for (InetAddress a : Collections.list(n.getInetAddresses())) if (a instanceof Inet4Address) return a.getHostAddress();
+        return "";
+    }
+
+    /** Placa de rede para ouvir: a que tem `preferIp`, senao a melhor por `rank` com IPv4. */
     public static NetworkInterface pickInterface(String preferIp) throws Exception {
         NetworkInterface best = null;
         for (NetworkInterface n : Collections.list(NetworkInterface.getNetworkInterfaces())) {
@@ -40,8 +57,7 @@ public final class Receiver {
             for (InetAddress a : Collections.list(n.getInetAddresses())) {
                 if (!(a instanceof Inet4Address)) continue;
                 if (a.getHostAddress().equals(preferIp)) return n;
-                String name = n.getName();
-                if (best == null || name.startsWith("wlan") || name.startsWith("eth")) best = n;
+                if (best == null || rank(n.getName()) > rank(best.getName())) best = n;
             }
         }
         return best;
