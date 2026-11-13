@@ -118,8 +118,37 @@ Mensagem embaixo de cada campo que tem regra (`.msg`; em erro, `.msg.err` e
 `aria-invalid`). As regras repetem as do programa (`ui.rs`): IP vazio ou IPv4 válido, placa
 obrigatória. O botão Salvar mostra "Salvando…" e fica desativado enquanto espera.
 
+## Diálogos
+
+`<dialog>` nativo (`ask()` no script): foco começa em Cancelar, `Esc` cancela, fundo
+escurecido (`--scrim`), botão de ação perigosa em vermelho (`button.danger`). Usado para
+Encerrar, Limpar matriz e trocar por "1 para 1" (só pergunta se a matriz tiver pontos).
+
+## Estados da página
+
+| Situação | Selo | Indicadores | Restante |
+|---|---|---|---|
+| Abrindo, antes da 1ª resposta | "conectando…" (em andamento) | "Conectando ao programa" | — |
+| Funcionando | "funcionando" (ok) | conforme o programa | normal |
+| Placa parada | "parado" | conforme o programa | matrizes trocadas por aviso explicando por quê |
+| Reiniciando após Salvar (até 20 s) | "reiniciando…" | — | aviso azul "Reiniciando o áudio…" |
+| Sem resposta (4 falhas seguidas) | "sem resposta" (erro) | todos "Sem informação" | blocos esmaecidos e sem clique |
+| Encerrado pelo botão | "encerrado" | — | página troca por "Programa encerrado" |
+
+"Sem resposta" é **desconhecido**, não "desconectado": a página não afirma nada que o
+programa não confirmou.
+
+## Medidor
+
+Barra de −60 a 0 dB. Perto do máximo (acima de −1 dB) a barra fica vermelha **e** ganha
+uma marca vertical no fim, para não depender só da cor.
+
+## Janela estreita
+
+Abaixo de 720 px o cabeçalho quebra em duas linhas, os indicadores ficam em coluna e os
+espaçamentos diminuem. A matriz rola dentro do próprio bloco; a página nunca rola para os
+lados (conferido em 390 px).
+
 ## Ainda não feito (propostas)
 
-- Medidor com marca não dependente de cor para saturação.
-- Diálogos próprios no lugar de `confirm()` do navegador.
 - Mesma identidade no aplicativo Android e nos ícones dos programas.

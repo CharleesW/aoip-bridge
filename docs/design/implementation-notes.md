@@ -48,6 +48,24 @@ matriz num ponto só, setas movem e destacam origem/destino, Enter ligou e Del d
 ponto (o estado voltou do programa e foi anunciado), IP inválido mostrou erro e o erro
 sumiu ao corrigir; temas escuro e claro.
 
+## Fase D — acabamento (esta etapa)
+
+Só `core/src/ui.html`. Diálogos próprios no lugar de `confirm()`, com confirmação também
+para "1 para 1" (substitui o roteamento atual); estados de carregando, reiniciando, sem
+resposta (indicadores viram "Sem informação") e encerrado; aviso no lugar das matrizes
+quando a placa está parada; marca de pico no medidor; layout para janela estreita.
+Correção: em janela estreita a matriz alargava a página inteira.
+
+Verificação no painel de demonstração: diálogo de Limpar abre com foco em Cancelar e `Esc`
+cancela sem mudar nada (33 pontos continuaram ligados); 390 px sem rolagem lateral da
+página; ao desligar o programa, em ~2 s o selo vira "sem resposta", os indicadores viram
+"Sem informação" e os blocos ficam esmaecidos; ao religar, tudo volta sozinho; temas escuro
+e claro. 28 testes do núcleo passando; programa e auxiliar do Mac compilam.
+
+Não verificado: estado "reiniciando" com o programa real (a demonstração não reinicia),
+painéis dentro do driver ASIO e do auxiliar do Mac, leitor de tela de verdade.
+
 ## Próximas etapas
 
-Fase D: estados vazios/erro, diálogos próprios. Android e ícones dos programas.
+Fase E (verificação e entrega): capturas reais nos dois temas, gerar pacotes de teste a
+partir do ramo e conferir nos programas instalados. Depois: estados vazios/erro, diálogos próprios. Android e ícones dos programas.
