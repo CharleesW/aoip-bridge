@@ -40,7 +40,7 @@
   --ok:#4CC39A;--info:#6AA5E8;--warn:#D9A441;--err:#EC7F7F;
   --ok-bg:rgba(35,139,104,.16);--info-bg:rgba(52,120,200,.18);--warn-bg:rgba(183,121,31,.18);--err-bg:rgba(196,71,71,.16);
   --route:#26A88B;--on-route:#0B1513;--route-att:#1B6F5D;--on-route-att:#D6F2EA;--route-boost:#C98A2B;--on-route-boost:#171B21;
-  --meter-track:#0F1216;--grid-line:#262C35;
+  --meter-track:#0F1216;--grid-line:#262C35;--on-danger:#1A0A0A;--scrim:rgba(8,10,13,.6);
   color-scheme:dark;
 }
 :root[data-theme="light"]{
@@ -51,7 +51,7 @@
   --ok:#1B7455;--info:#2B66AD;--warn:#8A5A10;--err:#B03A3A;
   --ok-bg:#E3F3ED;--info-bg:#E4EEFA;--warn-bg:#FBF0DC;--err-bg:#FBE6E6;
   --route:#1B7F69;--on-route:#FFFFFF;--route-att:#8CC9BA;--on-route-att:#0B2A23;--route-boost:#C98A2B;--on-route-boost:#171B21;
-  --meter-track:#E3E8ED;--grid-line:#E6EAEF;
+  --meter-track:#E3E8ED;--grid-line:#E6EAEF;--on-danger:#FFFFFF;--scrim:rgba(23,27,33,.35);
   color-scheme:light;
 }
 *{box-sizing:border-box}
@@ -79,8 +79,8 @@ button.subtle:hover{background:var(--hover);color:var(--text)}
 input[type=range]{accent-color:var(--action);border:0;background:none}
 
 /* estrutura */
-main{max-width:1280px;margin:0 auto;padding:var(--s5) var(--s5) 60px;display:grid;gap:var(--s4)}
-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s4)}
+main{max-width:1280px;margin:0 auto;padding:var(--s5) var(--s5) 60px;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s4)} /* a matriz rola dentro do bloco, nunca a pagina */
+section{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s4)}
 h2{font-size:16px;margin:0 0 var(--s1);font-weight:600}
 .sub{color:var(--text-2);margin:0 0 var(--s3);font-size:13px}
 code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding:1px 5px;border-radius:var(--r-sm)}
@@ -99,6 +99,8 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding
 .alert{display:flex;gap:var(--s2);align-items:flex-start;border:1px solid transparent;border-left:3px solid var(--err);background:var(--err-bg);color:var(--text);padding:var(--s3);border-radius:var(--r-md);margin-top:var(--s3)}
 .alert .ic{color:var(--err);margin-top:2px}
 .alert.warn{border-left-color:var(--warn);background:var(--warn-bg)}.alert.warn .ic{color:var(--warn)}
+.alert.info{border-left-color:var(--info);background:var(--info-bg)}.alert.info .ic{color:var(--info)}
+.step.info .ic{color:var(--info)}
 
 /* formulario */
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s3);align-items:end}
@@ -147,6 +149,35 @@ tbody tr:nth-child(8n+1):not(:first-child) th,tbody tr:nth-child(8n+1):not(:firs
 #gain{display:flex;gap:var(--s3);align-items:center;min-height:34px}
 #gain input{flex:0 0 220px;padding:0}
 #gain b{font-family:var(--font-mono);font-weight:500;min-width:52px}
+/* botao de acao perigosa */
+button.danger{background:var(--err);border-color:var(--err);color:var(--on-danger);font-weight:600}
+button.danger:hover{filter:brightness(1.08)}
+/* dialogo proprio (substitui confirm() do navegador) */
+dialog{border:1px solid var(--border-strong);border-radius:var(--r-lg);background:var(--surface);color:var(--text);padding:var(--s5);width:min(420px,calc(100vw - 32px))}
+dialog::backdrop{background:var(--scrim)}
+dialog h3{margin:0 0 var(--s2);font-size:16px;font-weight:600;display:flex;gap:var(--s2);align-items:center}
+dialog h3 .ic{color:var(--warn)}
+dialog p{margin:0 0 var(--s5);color:var(--text-2)}
+dialog .acts{display:flex;justify-content:flex-end;gap:var(--s2)}
+/* conteudo desatualizado (sem resposta do programa) */
+main.stale section:not(:first-child){opacity:.55;pointer-events:none}
+.empty{display:flex;gap:var(--s2);align-items:center;justify-content:center;color:var(--text-2);font-size:13px;padding:var(--s5);border:1px dashed var(--border-strong);border-radius:var(--r-lg)}
+.empty .ic{color:var(--text-3)}
+/* medidor: pico perto do maximo ganha uma marca no fim (forma, alem da cor) */
+tbody th .m{position:relative}
+tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2px;width:3px;border-radius:1px;background:var(--err)}
+/* janela estreita */
+@media (max-width:720px){
+  header{flex-wrap:wrap;padding:var(--s3) var(--s4);gap:var(--s2)}
+  header .sp{flex-basis:100%;height:0}
+  main{padding:var(--s4) var(--s4) 48px}
+  section{padding:var(--s3)}
+  .steps{grid-template-columns:1fr}
+  .step{min-height:0}
+  #gain{flex-wrap:wrap}
+  #gain input{flex:1 1 160px}
+  .gridwrap{max-height:60vh}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}button:active{transform:none}}
 </style>
 </head>
@@ -162,7 +193,7 @@ tbody tr:nth-child(8n+1):not(:first-child) th,tbody tr:nth-child(8n+1):not(:firs
   <section>
     <h2>Situação</h2>
     <p class="sub">Quando os quatro itens estiverem verdes, o áudio está passando.</p>
-    <div class="steps" id="steps"></div>
+    <div class="steps" id="steps" aria-live="polite"></div>
     <div id="alert" role="alert"></div>
   </section>
 
@@ -208,12 +239,20 @@ tbody tr:nth-child(8n+1):not(:first-child) th,tbody tr:nth-child(8n+1):not(:firs
     <div class="hint" id="rxHint"></div>
   </section>
 </main>
+<div id="engineHint" class="empty" hidden></div>
 <div id="live" class="sr" aria-live="polite"></div>
+<dialog id="dlg" aria-labelledby="dlgT" aria-describedby="dlgP">
+  <form method="dialog">
+    <h3 id="dlgT"></h3>
+    <p id="dlgP"></p>
+    <div class="acts"><button value="no" id="dlgNo">Cancelar</button><button value="yes" id="dlgYes"></button></div>
+  </form>
+</dialog>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const SLOT = 'ABCD';
-let S = null, sel = null, shape = {}, formTouched = false, offline = 0;
+let S = null, sel = null, shape = {}, formTouched = false, offline = 0, restartUntil = 0, stopped = false;
 
 async function post(path, params) {
   const q = new URLSearchParams(params).toString();
@@ -234,6 +273,21 @@ const icon = cls => `<svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${IC
 const badge = (cls, text) => `<span class="badge ${cls}">${icon(cls)}${esc(text)}</span>`;
 function setPill(cls, text) { $('pill').className = 'badge ' + cls; $('pill').innerHTML = icon(cls) + esc(text); }
 function showAlert(msg, kind) { $('alert').innerHTML = msg ? `<div class="alert ${kind || ''}">${icon(kind || 'bad')}<span>${esc(msg)}</span></div>` : ''; }
+
+// Confirmacao propria: foco preso no dialogo, Esc cancela, botao de acao perigosa em vermelho.
+function ask(title, text, yes, danger) {
+  const d = $('dlg');
+  $('dlgT').innerHTML = icon('warn') + esc(title);
+  $('dlgP').textContent = text;
+  $('dlgYes').textContent = yes;
+  $('dlgYes').className = danger ? 'danger' : 'primary';
+  return new Promise(done => {
+    d.returnValue = 'no';
+    d.onclose = () => done(d.returnValue === 'yes');
+    if (d.showModal) { d.showModal(); $('dlgNo').focus(); }
+    else done(window.confirm(title + '\n\n' + text)); // navegador antigo
+  });
+}
 
 function step(cls, title, text) {
   return `<div class="step ${cls}">${icon(cls)}<b>${esc(title)}</b><small>${text}</small></div>`;
@@ -311,7 +365,15 @@ function renderGrids() {
   const rxRows = range(S.nrx).filter(c => S.slots[Math.floor(c / 8)] && c % 8 < chOf(Math.floor(c / 8)));
   const key = [S.ins, S.ntx, S.outs, rxRows.join(), S.cfg.name, S.slots.join('|')].join('/');
   $('txSec').style.display = $('rxSec').style.display = S.running ? '' : 'none';
-  if (!S.running) return;
+  const hint = $('engineHint');
+  if (!S.running) {
+    // sem placa funcionando nao ha matriz: diz por que, em vez de deixar um vazio
+    hint.hidden = false;
+    hint.innerHTML = icon('') + (S.cfg.device ? 'As matrizes de envio e de recepção aparecem quando a placa estiver funcionando.' : 'Escolha a placa em Configuração para ver as matrizes de envio e de recepção.');
+    if (hint.parentElement !== document.querySelector('main')) document.querySelector('main').appendChild(hint);
+    return;
+  }
+  hint.hidden = true;
   if (shape.key !== key) {
     shape.key = key;
     const groups = range(Math.ceil(S.ntx / 8)).map(k => ({n: Math.min(8, S.ntx - k * 8), t: `${S.cfg.name} : ${k + 1}`}));
@@ -327,6 +389,7 @@ function renderGrids() {
     const db = v > 0 ? 20 * Math.log10(v) : -99;
     el.style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%';
     el.style.background = db > -1 ? 'var(--err)' : db > -12 ? 'var(--warn)' : 'var(--ok)';
+    el.parentElement.classList.toggle('clip', db > -1);
   }
   renderGain();
 }
@@ -368,7 +431,15 @@ document.addEventListener('click', async e => {
   const td = e.target.closest('td[data-k]');
   if (td) { moveFocus(td, false); return toggleCell(td, false); }
   const pre = e.target.dataset.preset;
-  if (pre) { const [m, kind] = pre.split(':'); if (kind !== 'clear' || confirm('Desligar todos os pontos desta matriz?')) { await post('/api/preset', {m, kind}); tick(); } }
+  if (pre) {
+    const [m, kind] = pre.split(':');
+    const name = m === 'tx' ? 'de envio' : 'de recepção', used = (S && S[m] || []).length;
+    const ok = kind === 'clear'
+      ? used && await ask('Limpar a matriz ' + name + '?', `Os ${used} ponto(s) ligados serão desligados. O áudio desses canais para na hora.`, 'Limpar', true)
+      : !used || await ask('Trocar pela ligação 1 para 1?', `Os ${used} ponto(s) atuais serão substituídos: cada canal vai para o canal de mesmo número.`, 'Trocar', false);
+    if (ok && await post('/api/preset', {m, kind})) $('live').textContent = kind === 'clear' ? 'Matriz ' + name + ' limpa.' : 'Matriz ' + name + ' em 1 para 1.';
+    tick();
+  }
 });
 // Liga/desliga um ponto. Com o mouse, o 1o clique num ponto ligado so seleciona (para ajustar o
 // ganho) e o 2o desliga; pelo teclado, Enter/Espaco alterna direto e Del desliga.
@@ -459,21 +530,36 @@ $('fSave').onclick = async () => {
   btn.disabled = true; btn.textContent = 'Salvando…';
   const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value});
   btn.disabled = false; btn.textContent = 'Salvar e iniciar';
-  if (ok) { formTouched = false; $('setupBox').open = false; setPill('info', 'reiniciando…'); shape = {}; }
+  if (ok) { formTouched = false; $('setupBox').open = false; setPill('info', 'reiniciando…'); shape = {}; restartUntil = Date.now() + 20000; }
 };
-$('quit').onclick = async () => { if (confirm('Encerrar o programa? O áudio para de passar.')) { await post('/api/quit', {}); document.body.innerHTML = '<div class="hint" style="padding:80px">Programa encerrado. Pode fechar esta aba.</div>'; } };
+$('quit').onclick = async () => {
+  if (!await ask('Encerrar o programa?', 'O áudio para de passar e os fluxos somem da rede até você abrir o programa de novo.', 'Encerrar', true)) return;
+  if (await post('/api/quit', {})) { stopped = true; document.querySelector('main').innerHTML = '<section><div class="empty">' + icon('') + 'Programa encerrado. Pode fechar esta aba.</div></section>'; setPill('', 'encerrado'); }
+};
 
 async function tick() {
+  if (stopped) return;
   try {
-    S = await (await fetch('/api/state')).json(); offline = 0;
+    const r = await fetch('/api/state', {cache: 'no-store'});
+    if (!r.ok) throw new Error(r.status);
+    S = await r.json(); offline = 0;
+    document.querySelector('main').classList.remove('stale');
+    if (S.running) restartUntil = 0;
     renderSteps(); renderForm(); renderSlots(); renderGrids();
+    if (!S.running && Date.now() < restartUntil) setPill('info', 'reiniciando…');
   } catch (e) {
-    if (++offline > 3) setPill('bad', 'programa fechado');
+    if (++offline <= 3) return; // uma falha isolada nao merece aviso
+    document.querySelector('main').classList.add('stale');
+    // sem resposta = estado desconhecido (nao 'desconectado' e muito menos 'ok')
+    $('steps').innerHTML = ['Placa de áudio', 'Rede', 'Relógio da rede (PTP)', 'Enviando'].map(t => step('', t, 'Sem informação: o programa não responde.')).join('');
+    if (Date.now() < restartUntil) { setPill('info', 'reiniciando…'); showAlert('Reiniciando o áudio com a configuração nova. Leva alguns segundos.', 'info'); }
+    else { setPill('bad', 'sem resposta'); showAlert('O programa não está respondendo: foi fechado ou travou. Os dados abaixo podem estar desatualizados. Abra o programa de novo.'); }
   }
 }
 $('theme').value = themePref();
 $('theme').onchange = e => { try { localStorage.setItem('aoip-theme', e.target.value); } catch (err) {} applyTheme(e.target.value); };
-setPill('info', 'iniciando…');
+setPill('info', 'conectando…');
+$('steps').innerHTML = step('info', 'Conectando ao programa', 'Lendo a situação da placa, da rede e do relógio…');
 tick(); setInterval(tick, 500);
 </script>
 </body>
