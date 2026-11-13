@@ -1,6 +1,6 @@
 [package]
 name = "aoip-engine"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Motor de rede do AoIP Bridge (PTP, SAP, RTP) independente da placa de audio"

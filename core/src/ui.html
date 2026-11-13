@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AOIP-Bridge</title>
+<title>AOIP-Bridge {{VERSAO}}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23171B21'/%3E%3Cg transform='translate(3.6 3.6) scale(.7)'%3E%3Cpath d='M4 18H8C12.5 18 11.5 6 16 6H20' fill='none' stroke='%23E8ECF0' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='4' cy='18' r='2.6' fill='%23E8ECF0'/%3E%3Ccircle cx='20' cy='6' r='2.6' fill='%23E8ECF0'/%3E%3Ccircle cx='12' cy='12' r='3' fill='%2326A88B' stroke='%23171B21' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E">
 <script>
 // Tema antes do primeiro desenho, para a tela nao piscar na cor errada.
@@ -63,6 +63,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 var(--font-u
 header{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s5);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:5}
 header .mark{width:24px;height:24px;flex:none;color:var(--text)}
 header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+header .ver{font-size:12px;color:var(--text-3);white-space:nowrap;font-variant-numeric:tabular-nums}
 header .sp{flex:1}
 header .theme{display:flex;align-items:center;gap:var(--s2);color:var(--text-2);font-size:12px}
 
@@ -184,7 +185,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
 <body>
 <header>
   <svg class="mark" viewBox="0 0 24 24" role="img" aria-label="AOIP-Bridge"><path d="M4 18H8C12.5 18 11.5 6 16 6H20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="4" cy="18" r="2.6" fill="currentColor"/><circle cx="20" cy="6" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="3" fill="#26A88B" stroke="var(--bg)" stroke-width="1.2"/></svg>
-  <h1>AOIP-Bridge</h1><span class="badge" id="pill" role="status">iniciando…</span>
+  <h1>AOIP-Bridge</h1><span class="ver" title="Versão do programa">v{{VERSAO}} · {{SISTEMA}}</span><span class="badge" id="pill" role="status">iniciando…</span>
   <span class="sp"></span>
   <label class="theme">Tema<select id="theme" aria-label="Tema da interface"><option value="system">Sistema</option><option value="dark">Escuro</option><option value="light">Claro</option></select></label>
   <button class="subtle" id="quit" title="Fecha o programa e para o áudio">Encerrar</button>

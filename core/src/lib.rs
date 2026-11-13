@@ -9,6 +9,9 @@ pub mod sdp;
 pub mod state;
 pub mod ui;
 
+/// Versao do produto (`[workspace.package]` no Cargo.toml da raiz).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub const RATE: u32 = 48_000;
 /// Quadros por pacote com ptime de 1 ms a 48 kHz.
 pub const FRAMES_PER_PACKET: usize = 48;

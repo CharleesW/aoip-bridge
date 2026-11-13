@@ -1,6 +1,6 @@
 [package]
 name = "aoip-asio"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Driver ASIO virtual do AoIP Bridge: o programa de audio (REAPER etc.) fala direto com a rede AES67"

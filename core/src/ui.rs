@@ -9,6 +9,21 @@ use std::time::Duration;
 
 const PAGE: &str = include_str!("ui.html");
 
+/// Nome do sistema como aparece no painel.
+fn os_name() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "Windows",
+        "macos" => "macOS",
+        "linux" => "Linux",
+        other => other,
+    }
+}
+
+/// O painel com a versao e o sistema preenchidos, para aparecerem em qualquer captura de tela.
+pub fn page() -> String {
+    PAGE.replace("{{VERSAO}}", crate::VERSION).replace("{{SISTEMA}}", os_name())
+}
+
 pub fn serve(shared: Arc<Shared>, listener: TcpListener) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
@@ -50,7 +65,7 @@ fn handle(mut conn: TcpStream, shared: &Shared) -> std::io::Result<()> {
     let (code, ctype, body) = if !local {
         (403, "text/plain", "acesso negado".to_string())
     } else if method == "GET" && path == "/" {
-        (200, "text/html; charset=utf-8", PAGE.to_string())
+        (200, "text/html; charset=utf-8", page())
     } else if method == "GET" && path == "/api/state" {
         (200, "application/json", state_json(shared))
     } else if method == "POST" && header("x-aoip").is_some() {
@@ -225,6 +240,14 @@ mod tests {
         let mut s = String::new();
         c.read_to_string(&mut s).unwrap();
         s
+    }
+
+    #[test]
+    fn page_shows_version_and_system() {
+        let p = page();
+        assert!(!p.contains("{{"), "sobrou marcador no painel");
+        assert!(p.contains(&format!("v{} · {}", crate::VERSION, os_name())));
+        assert!(p.contains(&format!("<title>AOIP-Bridge {}</title>", crate::VERSION)));
     }
 
     #[test]

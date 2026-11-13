@@ -3,6 +3,10 @@ members = ["core", "engine", "bridge", "asio-driver", "mac-driver"]
 default-members = ["core"]
 resolver = "2"
 
+# Versao do produto: aparece no painel de todos os programas e no nome dos pacotes.
+[workspace.package]
+version = "0.4.1"
+
 [profile.release]
 opt-level = 3
 lto = true
