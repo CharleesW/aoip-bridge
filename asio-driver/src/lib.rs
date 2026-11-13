@@ -185,9 +185,14 @@ fn start_engine() -> Result<Engine, Box<dyn std::error::Error>> {
     shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), " Virtual");
     // A porta do painel tambem serve de trava: so um programa por vez pode usar o driver.
     // Dois programas com o driver aberto seriam dois remetentes no mesmo fluxo de rede.
-    let listener = TcpListener::bind(("127.0.0.1", PANEL_PORT)).map_err(|_| {
-        "O AoIP Bridge ASIO ja esta aberto em outro programa. Feche o outro programa e tente de novo."
-    })?;
+    // Ao reabrir o programa de audio, o anterior pode ainda estar terminando de fechar:
+    // espera ate 5 s pela porta antes de dizer que ha outro programa usando o driver.
+    let listener = (0..25)
+        .find_map(|_| TcpListener::bind(("127.0.0.1", PANEL_PORT)).ok().or_else(|| {
+            std::thread::sleep(Duration::from_millis(200));
+            None
+        }))
+        .ok_or("O AoIP Bridge ASIO ja esta aberto em outro programa. Feche o outro programa e tente de novo.")?;
     let cfg = shared.config.lock().unwrap().clone();
     let started = resolve_iface(&shared, &cfg).and_then(|iface| start_network(&shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
     // O painel abre mesmo se a rede falhar: e nele que se corrige a placa de rede.
@@ -208,7 +213,7 @@ fn start_engine() -> Result<Engine, Box<dyn std::error::Error>> {
             // Sem rede, o programa de audio continua com a placa (em silencio) em vez de
             // dizer "indisponivel", e o painel abre sozinho mostrando o motivo.
             shared.status.lock().unwrap().error = format!(
-                "A rede nao abriu: {e} Escolha a placa de rede em Configuracao, salve, e depois feche e abra de novo o programa de audio."
+                "A rede nao abriu: {e} Escolha a placa de rede em Configuracao e salve (nao precisa fechar o programa de audio)."
             );
             housekeeping(shared.clone(), None);
             open_browser(&format!("http://127.0.0.1:{PANEL_PORT}"));
@@ -219,10 +224,11 @@ fn start_engine() -> Result<Engine, Box<dyn std::error::Error>> {
     }
 }
 
-/// Mantem o painel atualizado. Mudancas de configuracao so valem na proxima vez que o
-/// programa de audio abrir, porque a rede nao pode ser religada com o audio rodando.
+/// Mantem o painel atualizado e aplica a configuracao salva no painel: a rede e religada
+/// por dentro, com o programa de audio aberto e tocando (sem precisar fecha-lo).
 fn housekeeping(shared: Arc<Shared>, network: Option<Network>) {
     std::thread::spawn(move || {
+        let mut network = network;
         let mut ticks = 0u32;
         loop {
             std::thread::sleep(Duration::from_millis(250));
@@ -238,12 +244,43 @@ fn housekeeping(shared: Arc<Shared>, network: Option<Network>) {
                 None => {}
             }
             if shared.restart.swap(false, Relaxed) {
-                shared.status.lock().unwrap().error =
-                    "Configuracao salva. Para valer, feche e abra de novo o programa de audio (REAPER etc.).".into();
+                network = restart_network(&shared, network.take());
             }
             shared.quit.store(false, Relaxed); // quem encerra o driver e o programa de audio
         }
     });
+}
+
+/// Desliga a rede atual e liga outra com a configuracao salva, trocando por dentro o que a
+/// placa entrega e recebe. O programa de audio nao percebe (ouve silencio por ~1 s).
+fn restart_network(shared: &Arc<Shared>, old: Option<Network>) -> Option<Network> {
+    if let Some(n) = old {
+        n.shutdown();
+        std::thread::sleep(Duration::from_millis(700)); // as threads da rede antiga terminam
+    }
+    let cfg = {
+        let mut c = shared.config.lock().unwrap();
+        c.device = DRIVER_NAME.into();
+        c.rate = RATE;
+        c.clone()
+    };
+    shared.status.lock().unwrap().error.clear();
+    let started = resolve_iface(shared, &cfg).and_then(|iface| start_network(shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
+    let Some(engine) = ENGINE.get() else { return started.ok().map(|x| x.0) };
+    match started {
+        Ok((network, capture, playback)) => {
+            *engine.capture.lock().unwrap_or_else(|p| p.into_inner()) = capture;
+            *engine.playback.lock().unwrap_or_else(|p| p.into_inner()) = playback;
+            shared.status.lock().unwrap().net_tx = network.net_tx;
+            Some(network)
+        }
+        Err(e) => {
+            *engine.capture.lock().unwrap_or_else(|p| p.into_inner()) = Box::new(|_: &[f32]| {});
+            *engine.playback.lock().unwrap_or_else(|p| p.into_inner()) = Box::new(|out: &mut [f32]| out.fill(0.0));
+            shared.status.lock().unwrap().error = format!("A rede nao abriu: {e} Escolha a placa de rede em Configuracao e salve de novo.");
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------- estado do driver

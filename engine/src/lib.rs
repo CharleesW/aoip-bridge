@@ -72,6 +72,8 @@ pub struct Clock {
     pub announcers: Mutex<HashMap<[u8; 8], Ipv4Addr>>,
     /// IP deste programa na rede de audio.
     pub iface: Ipv4Addr,
+    /// Pedido para desligar a rede (todas as threads deste motor terminam em ate ~0,5 s).
+    pub stop: AtomicBool,
 }
 
 impl Clock {
@@ -155,11 +157,17 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
     for port in [ptp::EVENT_PORT, ptp::GENERAL_PORT] {
         let sock = net::listener(ptp::GROUP, port, iface)
             .map_err(|e| format!("Nao consegui abrir a porta {port} do relogio PTP ({e}). Outro programa de audio em rede pode estar usando."))?;
+        sock.set_read_timeout(Some(Duration::from_millis(500)))?; // para notar o pedido de desligar
         let (clock, follower, election) = (clock.clone(), follower.clone(), election.clone());
         std::thread::spawn(move || {
             realtime_thread(); // o carimbo de chegada e tirado aqui: atraso vira erro de relogio
             let mut buf = [0u8; 512];
-            while let Ok((n, from)) = sock.recv_from(&mut buf) {
+            while !clock.stop.load(Relaxed) {
+                let (n, from) = match sock.recv_from(&mut buf) {
+                    Ok(x) => x,
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => continue,
+                    Err(_) => break,
+                };
                 let local = clock.local_ns();
                 let pkt = &buf[..n];
                 let Some((domain, msg)) = ptp::parse(pkt) else { continue };
@@ -192,7 +200,7 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
     std::thread::spawn(move || {
         realtime_thread();
         let (mut seq, mut tick) = (0u16, 0u32);
-        loop {
+        while !clock.stop.load(Relaxed) {
             std::thread::sleep(Duration::from_millis(125));
             let is_master = election.lock().unwrap().is_master(clock.local_ns());
             if is_master != clock.master.swap(is_master, Relaxed) {
@@ -246,7 +254,7 @@ fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Ad
             eprintln!("aviso: sem prioridade de tempo real no envio; pode haver falhas no audio.");
         }
         let mut woke = Instant::now();
-        loop {
+        while !clock.stop.load(Relaxed) {
             std::thread::sleep(Duration::from_micros(250));
             TX_GAP_US.fetch_max(woke.elapsed().as_micros() as u64, Relaxed);
             woke = Instant::now();
@@ -284,12 +292,17 @@ fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Ad
                 next += ns_per_pkt;
             }
         }
+        // Desligando: avisa a rede que os fluxos acabaram (somem das listas dos outros na hora).
+        for f in &flows {
+            let msg = sap::build(true, f.session.session_id as u16, iface, &f.session.to_sdp());
+            let _ = sock.send_to(&msg, (sap::GROUP, sap::PORT));
+        }
     });
     Ok(())
 }
 
 /// Descobre fluxos via SAP e mantem as assinaturas escolhidas no painel.
-fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr) -> Res<()> {
+fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<Clock>) -> Res<()> {
     let sock = net::listener(sap::GROUP, sap::PORT, iface)?;
     sock.set_read_timeout(Some(Duration::from_millis(500)))?;
     std::thread::spawn(move || {
@@ -298,6 +311,13 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr) -> Res<()> {
         let mut running: Vec<Option<(String, Arc<AtomicBool>)>> = (0..RX_SLOTS).map(|_| None).collect();
         let usable = |s: &Session| s.rate == RATE && (s.bits == 24 || s.bits == 16);
         loop {
+            if clock.stop.load(Relaxed) {
+                for (_, stop) in running.iter_mut().filter_map(Option::take) {
+                    stop.store(true, Relaxed);
+                }
+                *shared.slot_active.lock().unwrap() = vec![false; RX_SLOTS];
+                return;
+            }
             if let Ok((n, _)) = sock.recv_from(&mut buf) {
                 if let Some((ann, s)) = sap::parse(&buf[..n]).and_then(|a| Session::parse(a.sdp).map(|s| (a, s))) {
                     if ann.origin != iface || selftest() {
@@ -391,6 +411,14 @@ pub struct Network {
     pub net_tx: usize,
 }
 
+impl Network {
+    /// Desliga a rede deste motor: param o relogio, o envio, a recepcao e os anuncios, e as
+    /// portas sao soltas. Usado para aplicar uma configuracao nova sem fechar o programa.
+    pub fn shutdown(&self) {
+        self.clock.stop.store(true, Relaxed);
+    }
+}
+
 /// Atualiza a lista de placas de rede que o painel oferece.
 pub fn refresh_ifaces(shared: &Shared) {
     *shared.ifaces.lock().unwrap() = net::interfaces();
@@ -438,7 +466,7 @@ pub fn start_network(
 
     let clock = Arc::new(Clock {
         base: Instant::now(), offset: AtomicI64::new(0), locked: AtomicBool::new(false), gmid: Mutex::new(None), master: AtomicBool::new(false),
-        announcers: Mutex::new(HashMap::new()), iface,
+        announcers: Mutex::new(HashMap::new()), iface, stop: AtomicBool::new(false),
     });
     if selftest() {
         // Relogio local no lugar do PTP, com um identificador de grandmaster ficticio.
@@ -474,7 +502,7 @@ pub fn start_network(
         .map(|_| Arc::new(Mutex::new(DriftFifo::with_ratio(MAX_FLOW_CHANNELS, target, RATE as f64 / dev_rate as f64))))
         .collect();
     spawn_tx(clock.clone(), tx_fifo.clone(), flows, iface)?;
-    spawn_rx(shared.clone(), rx_fifos.clone(), iface)?;
+    spawn_rx(shared.clone(), rx_fifos.clone(), iface, clock.clone())?;
 
     // Entrada da placa -> matriz TX -> fila de rede.
     let (sh, fifo) = (shared.clone(), tx_fifo.clone());

@@ -1,4 +1,4 @@
-AoIP Bridge para Windows (versao de teste 0.4.4)
+AoIP Bridge para Windows (versao de teste 0.4.5)
 ===============================================
 
 ATENCAO: versao de teste. O driver ASIO desta versao foi testado so em um simulador no
@@ -30,7 +30,7 @@ COMO USAR NO REAPER
      Por padrao vai 1 fluxo (saidas 1 a 8). Mude em Configuracao > Canais enviados.
    - "Receber da rede": escolha um fluxo e ligue os canais; eles chegam nas ENTRADAS
      do REAPER (Rede Entrada 1, 2...).
-   - Mudou algo em Configuracao? Feche e abra o REAPER para valer.
+   - Mudou algo em Configuracao? Vale na hora, com o REAPER aberto (a rede religa em ~1 s).
 4. No Dante Controller os fluxos enviados aparecem em azul (AES67). Veja "LIMITES".
 
 LIMITES DESTA VERSAO (importante)
