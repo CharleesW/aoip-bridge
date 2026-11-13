@@ -22,15 +22,21 @@ fn main() {
             let mut st = s.status.lock().unwrap();
             st.running = true; st.device = "Soundcraft Ui24R".into(); st.iface = "192.168.1.50".into();
             st.ins = 32; st.outs = 32; st.net_tx = 32; st.ptp = true; st.grandmaster = "001DC1FFFE123456".into();
+            st.gm_ip = "192.168.5.30".into(); st.gm_name = "MESA-FOH".into(); st.iface_label = "Ethernet".into();
+            st.name = "Ui24R".into(); st.auto_name = "PC-IGREJA".into();
         }
         *s.flows.lock().unwrap() = vec![
-            Flow { name: "MESA-FOH : 1".into(), addr: "239.69.83.67:5004".into(), channels: 8, compatible: true },
-            Flow { name: "PALCO : 3".into(), addr: "239.69.12.9:5004".into(), channels: 2, compatible: true },
-            Flow { name: "RADIO 96k".into(), addr: "239.69.1.1:5004".into(), channels: 2, compatible: false },
+            Flow { name: "MESA-FOH : 1".into(), addr: "239.69.83.67:5004".into(), channels: 8, origin: "192.168.5.30".into(), compatible: true },
+            Flow { name: "PALCO : 3".into(), addr: "239.69.12.9:5004".into(), channels: 2, origin: "192.168.5.31".into(), compatible: true },
+            Flow { name: "RADIO 96k".into(), addr: "239.69.1.1:5004".into(), channels: 2, origin: "192.168.5.32".into(), compatible: false },
         ];
         *s.slot_active.lock().unwrap() = vec![true, false, false, false];
         s
     };
+    *shared.ifaces.lock().unwrap() = vec![
+        aoip_core::state::NetIface { id: "Ethernet".into(), label: "Ethernet (Realtek PCIe GbE)".into(), ip: "192.168.1.50".parse().unwrap() },
+        aoip_core::state::NetIface { id: "Wi-Fi".into(), label: "Wi-Fi (Intel AX201)".into(), ip: "192.168.10.20".parse().unwrap() },
+    ];
     *shared.devices.lock().unwrap() = vec![("Soundcraft Ui24R".into(), 32, 32), ("MacBook Pro Microphone".into(), 1, 0)];
     let l = std::net::TcpListener::bind("127.0.0.1:8787").unwrap();
     aoip_core::ui::serve(shared.clone(), l);

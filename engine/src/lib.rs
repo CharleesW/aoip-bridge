@@ -3,10 +3,11 @@
 //! placa de verdade (programa `aoip-bridge`, via cpal) ou o driver ASIO virtual.
 pub mod net;
 
-use aoip_core::state::{note_peaks, Config, Flow, Shared, NET_RX, RX_SLOTS};
+use aoip_core::state::{auto_name, choose_iface, device_of_flow, note_peaks, Config, Flow, Shared, NET_RX, RX_SLOTS};
 use aoip_core::{matrix::Matrix, ptp, resample::DriftFifo, rtp, sap, sdp::Session};
 use aoip_core::{FRAMES_PER_PACKET, MAX_FLOW_CHANNELS, RATE};
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -67,6 +68,10 @@ pub struct Clock {
     pub gmid: Mutex<Option<[u8; 8]>>,
     /// Este computador esta gerando o relogio (nao ha outro na rede).
     pub master: AtomicBool,
+    /// De que IP veio o anuncio de cada relogio (para mostrar quem e o mestre).
+    pub announcers: Mutex<HashMap<[u8; 8], Ipv4Addr>>,
+    /// IP deste programa na rede de audio.
+    pub iface: Ipv4Addr,
 }
 
 impl Clock {
@@ -141,8 +146,8 @@ pub fn realtime_thread_for(_period: Duration, _busy: Duration) -> bool {
 
 /// Escuta Sync/Follow_Up/Announce e mantem o relogio compartilhado. Se nao houver nenhum
 /// relogio PTPv2 na rede, este computador passa a gerar um (veja `ptp::Election`).
-fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr) -> Res<()> {
-    let own = ptp::clock_id(iface);
+fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
+    let own = ptp::clock_id(iface, instance);
     let follower = Arc::new(Mutex::new(ptp::Follower::default()));
     let election = Arc::new(Mutex::new(ptp::Election::new(own, clock.local_ns())));
     for port in [ptp::EVENT_PORT, ptp::GENERAL_PORT] {
@@ -152,7 +157,7 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr) -> Res<()> {
         std::thread::spawn(move || {
             realtime_thread(); // o carimbo de chegada e tirado aqui: atraso vira erro de relogio
             let mut buf = [0u8; 512];
-            while let Ok((n, _)) = sock.recv_from(&mut buf) {
+            while let Ok((n, from)) = sock.recv_from(&mut buf) {
                 let local = clock.local_ns();
                 let pkt = &buf[..n];
                 let Some((domain, msg)) = ptp::parse(pkt) else { continue };
@@ -161,6 +166,9 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr) -> Res<()> {
                 }
                 if let Some((p1, gm)) = ptp::announce_rank(pkt) {
                     election.lock().unwrap().on_announce(p1, gm, local);
+                    if let IpAddr::V4(ip) = from.ip() {
+                        clock.announcers.lock().unwrap().insert(gm, ip);
+                    }
                 }
                 if clock.master.load(Relaxed) {
                     continue; // enquanto geramos o relogio, nao seguimos ninguem
@@ -297,7 +305,7 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr) -> Res<()> {
                         }
                         known.sort_by(|a, b| a.name.cmp(&b.name));
                         *shared.flows.lock().unwrap() = known.iter()
-                            .map(|k| Flow { name: k.name.clone(), addr: format!("{}:{}", k.group, k.port), channels: k.channels, compatible: usable(k) })
+                            .map(|k| Flow { name: k.name.clone(), addr: format!("{}:{}", k.group, k.port), channels: k.channels, origin: k.origin.to_string(), compatible: usable(k) })
                             .collect();
                     }
                 }
@@ -381,12 +389,27 @@ pub struct Network {
     pub net_tx: usize,
 }
 
-/// IP da rede de audio: o da configuracao ou um palpite.
-pub fn resolve_iface(cfg: &Config) -> Res<Ipv4Addr> {
-    match cfg.iface.parse() {
-        Ok(ip) => Ok(ip),
-        Err(_) => Ok(net::guess_iface().ok_or("Nao encontrei a rede. Informe o IP deste computador em Configuracao.")?),
-    }
+/// Atualiza a lista de placas de rede que o painel oferece.
+pub fn refresh_ifaces(shared: &Shared) {
+    *shared.ifaces.lock().unwrap() = net::interfaces();
+}
+
+/// IP da rede de audio, pela placa de rede escolhida em Configuracao. O IP e lido na hora,
+/// entao muda sozinho de uma rede para outra. Se o que foi salvo nao existe mais (o IP de
+/// outra rede, ou a placa desligada), usa a rede automatica e deixa um aviso no painel.
+pub fn resolve_iface(shared: &Shared, cfg: &Config) -> Res<Ipv4Addr> {
+    let list = net::interfaces();
+    let (chosen, notice) = choose_iface(&cfg.iface, &list);
+    *shared.ifaces.lock().unwrap() = list.clone();
+    let ip = match chosen.or_else(net::guess_iface).or_else(|| list.first().map(|i| i.ip)) {
+        Some(ip) => ip,
+        None => return Err("Nenhuma rede ligada neste computador. Conecte o cabo de rede (ou o Wi-Fi) e tente de novo.".into()),
+    };
+    let label = list.iter().find(|i| i.ip == ip).map(|i| i.label.clone()).unwrap_or_default();
+    let mut st = shared.status.lock().unwrap();
+    st.notice = notice.unwrap_or_default();
+    st.iface_label = label;
+    Ok(ip)
 }
 
 /// Liga a rede para uma placa com `dev_ins` entradas e `dev_outs` saidas em `dev_rate` Hz.
@@ -396,6 +419,14 @@ pub fn start_network(
     shared: &Arc<Shared>, cfg: &Config, iface: Ipv4Addr, dev_ins: usize, dev_outs: usize, dev_rate: u32, flow_base: u32,
 ) -> Res<(Network, Capture, Playback)> {
     let net_tx = if cfg.tx_channels == 0 { dev_ins } else { cfg.tx_channels }.clamp(1, 64);
+    // Nome na rede: o escolhido, ou o nome do computador ("PC-IGREJA"); a placa virtual
+    // ganha " Virtual" para nao se confundir com o AoIP Bridge do mesmo computador.
+    let auto = auto_name(&net::computer_name(), if flow_base == 0 { "" } else { " Virtual" });
+    let name = cfg.flow_name(&auto);
+    {
+        let mut st = shared.status.lock().unwrap();
+        (st.name, st.auto_name) = (name.clone(), auto);
+    }
     let target = cfg.latency_ms.max(1) * RATE as usize / 1000;
     let tx_target = cfg.latency_ms.max(1) * dev_rate as usize / 1000; // em quadros da placa
     shared.status.lock().unwrap().iface = iface.to_string();
@@ -405,6 +436,7 @@ pub fn start_network(
 
     let clock = Arc::new(Clock {
         base: Instant::now(), offset: AtomicI64::new(0), locked: AtomicBool::new(false), gmid: Mutex::new(None), master: AtomicBool::new(false),
+        announcers: Mutex::new(HashMap::new()), iface,
     });
     if selftest() {
         // Relogio local no lugar do PTP, com um identificador de grandmaster ficticio.
@@ -413,7 +445,7 @@ pub fn start_network(
         *clock.gmid.lock().unwrap() = Some([0x02, 0, 0, 0xFF, 0xFE, 0, 0, 0x01]);
         clock.locked.store(true, Relaxed);
     } else {
-        spawn_ptp(clock.clone(), iface)?;
+        spawn_ptp(clock.clone(), iface, if flow_base == 0 { 0 } else { 1 })?;
     }
 
     // Fluxos TX: ate 8 canais cada, em enderecos multicast consecutivos (239.69.x.y).
@@ -427,7 +459,7 @@ pub fn start_network(
                 dest: SocketAddrV4::new(group, tx_port()),
                 first_ch,
                 session: Session {
-                    name: format!("{} : {}", cfg.name, k + 1), origin: iface,
+                    name: format!("{} : {}", name, k + 1), origin: iface,
                     session_id: (u32::from(iface) as u64) << 8 | (flow_base as u64 + k as u64), group, port: tx_port(), pt: 97,
                     channels: (net_tx - first_ch).min(MAX_FLOW_CHANNELS) as u8, rate: RATE, bits: 24, refclk: None,
                 },
@@ -519,14 +551,35 @@ pub fn start_network(
 
 /// Atualiza no estado compartilhado o que o painel mostra sobre relogio e fila.
 pub fn refresh_status(shared: &Shared, n: &Network) {
+    static CALLS: AtomicU64 = AtomicU64::new(0);
+    if CALLS.fetch_add(1, Relaxed) % 20 == 0 {
+        refresh_ifaces(shared); // a cada ~5 s: cabo ligado ou desligado aparece no painel
+    }
+    // Quem e o relogio mestre: IP de quem anunciou; nome pelo nome dos fluxos dele na rede
+    // ou, sem fluxos, pelo nome do computador (DNS reverso / NetBIOS / mDNS).
+    let gmid = *n.clock.gmid.lock().unwrap();
+    let is_self = n.clock.master.load(Relaxed);
+    let gm_ip = match gmid {
+        _ if is_self => Some(n.clock.iface),
+        Some(g) => n.clock.announcers.lock().unwrap().get(&g).copied(),
+        None => None,
+    };
+    let gm_name = match gm_ip {
+        _ if is_self => shared.status.lock().unwrap().name.clone(),
+        Some(ip) => {
+            let from_flows = shared.flows.lock().unwrap().iter()
+                .find(|f| f.origin == ip.to_string())
+                .map(|f| device_of_flow(&f.name).to_string());
+            from_flows.or_else(|| net::name_of(ip)).unwrap_or_default()
+        }
+        None => String::new(),
+    };
     let mut st = shared.status.lock().unwrap();
     st.ptp = n.clock.locked.load(Relaxed);
-    if let Some(g) = *n.clock.gmid.lock().unwrap() {
-        st.grandmaster = g.iter().map(|b| format!("{b:02X}")).collect();
-        if n.clock.master.load(Relaxed) {
-            st.grandmaster.push_str(" (este computador esta gerando o relogio)");
-        }
-    }
+    st.grandmaster = gmid.map(|g| g.iter().map(|b| format!("{b:02X}")).collect()).unwrap_or_default();
+    st.gm_ip = gm_ip.map(|ip| ip.to_string()).unwrap_or_default();
+    st.gm_name = gm_name;
+    st.gm_self = is_self;
     let f = n.tx_fifo.lock().unwrap();
     (st.tx_fill, st.underruns, st.overruns) = (f.fill(), f.underruns, f.overruns);
 }

@@ -63,6 +63,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 var(--font-u
 header{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s5);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:5}
 header .mark{width:24px;height:24px;flex:none;color:var(--text)}
 header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+.mono{font-family:var(--font-mono);font-size:11px;color:var(--text-3)}
 header .ver{font-size:12px;color:var(--text-3);white-space:nowrap;font-variant-numeric:tabular-nums}
 header .sp{flex:1}
 header .theme{display:flex;align-items:center;gap:var(--s2);color:var(--text-2);font-size:12px}
@@ -204,8 +205,8 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
       <p class="sub" style="margin-top:8px">Mudanças aqui reiniciam o áudio por alguns segundos.</p>
       <div class="form">
         <label>Placa de áudio<select id="fDev" aria-describedby="fDevMsg"></select><span class="msg" id="fDevMsg"></span></label>
-        <label>IP deste computador na rede de áudio<input id="fIf" placeholder="ex.: 192.168.1.50" inputmode="decimal" autocomplete="off" aria-describedby="fIfMsg"><span class="msg" id="fIfMsg">Vazio: o programa escolhe sozinho.</span></label>
-        <label>Nome que aparece no Dante Controller<input id="fName" maxlength="24" autocomplete="off" aria-describedby="fNameMsg"><span class="msg" id="fNameMsg">Até 24 letras. Vazio: "Bridge".</span></label>
+        <label>Placa de rede<select id="fIf" aria-describedby="fIfMsg"></select><span class="msg" id="fIfMsg">O IP é lido sozinho a cada vez que o programa abre.</span></label>
+        <label>Nome que aparece na rede (Dante Controller)<input id="fName" maxlength="24" autocomplete="off" aria-describedby="fNameMsg"><span class="msg" id="fNameMsg"></span></label>
         <label>Canais enviados para a rede<select id="fTx"></select></label>
         <label>Taxa de amostragem da placa<select id="fRate">
           <option value="0">Automática: 48000 Hz se a placa aceitar</option>
@@ -297,20 +298,31 @@ function renderSteps() {
   const h = [];
   if (S.running) h.push(step('ok', 'Placa de áudio', `${esc(S.device)}: ${S.ins} entradas, ${S.outs} saídas, ${S.rate} Hz${S.rate && S.rate !== 48000 ? ' (convertido para os 48000 Hz da rede)' : ''}`));
   else h.push(step(S.cfg.device ? 'bad' : 'warn', 'Placa de áudio', S.cfg.device ? 'Não abriu. Veja o aviso abaixo.' : 'Escolha a placa em Configuração.'));
-  h.push(step(S.iface ? 'ok' : 'warn', 'Rede', S.iface ? `Usando o IP ${esc(S.iface)}` : 'Informe o IP em Configuração.'));
+  h.push(step(S.iface ? 'ok' : 'warn', 'Rede', S.iface ? `${S.ifaceLabel ? esc(S.ifaceLabel) + ', ' : ''}IP ${esc(S.iface)}` : 'Escolha a placa de rede em Configuração.'));
   if (!S.running) h.push(step('', 'Relógio da rede (PTP)', 'Aguardando a placa.'));
-  else if (S.ptp) h.push(step('ok', 'Relógio da rede (PTP)', `Sincronizado com ${esc(S.gm)}`));
+  else if (S.ptp) h.push(step('ok', 'Relógio da rede (PTP)', clockText()));
   else h.push(step('bad', 'Relógio da rede (PTP)', 'Não encontrado. No Dante Controller, abra um dispositivo, vá em <b>AES67 Config</b>, ligue o AES67 e reinicie o dispositivo.'));
   const flows = Math.ceil(S.ntx / 8);
-  if (S.running && S.ptp) h.push(step('ok', 'Enviando', `${S.ntx} canais em ${flows} fluxo(s) chamados “${esc(S.cfg.name)} : 1…”. Podem levar 30 s para aparecer no Dante Controller.`));
+  if (S.running && S.ptp) h.push(step('ok', 'Enviando', `${S.ntx} canais em ${flows} fluxo(s) chamados “${esc(netName())} : 1…”. Podem levar 30 s para aparecer no Dante Controller.`));
   else h.push(step('', 'Enviando', 'Começa quando o relógio sincronizar.'));
   $('steps').innerHTML = h.join('');
   const ok = S.running && S.ptp;
   setPill(ok ? 'ok' : (S.running ? 'warn' : ''), ok ? 'funcionando' : (S.running ? 'sem relógio' : 'parado'));
   if (S.error) showAlert(S.error);
+  else if (S.notice) showAlert(S.notice, 'warn');
   else if (S.under > 0 && S.running) showAlert(`O áudio falhou ${S.under} vez(es). Se ouvir estalos, aumente a folga em Configuração.`, 'warn');
   else showAlert('');
 }
+
+// Nome em uso na rede (o escolhido, ou o nome do computador).
+const netName = () => S.name || S.cfg.name || S.autoName || 'AoIP';
+// Quem e o relogio mestre: nome e IP (e a identidade PTP, para conferir no Dante Controller).
+function clockText() {
+  const who = S.gmSelf ? `<b>este computador</b> (${esc(S.gmName || netName())}, ${esc(S.gmIp)})`
+    : S.gmIp ? `<b>${esc(S.gmName || 'aparelho sem nome')}</b> (${esc(S.gmIp)})` : 'aparelho ainda não identificado';
+  return `Mestre: ${who}${S.gm ? ` <span class="mono">· ${esc(S.gm)}</span>` : ''}`;
+}
+const isMaster = f => S.gmIp && f.origin === S.gmIp;
 
 function renderForm() {
   if (formTouched) return;
@@ -319,8 +331,16 @@ function renderForm() {
   $('fDev').innerHTML = (names.length ? '' : '<option value="">nenhuma placa encontrada</option>') +
     names.map(n => { const d = S.devices.find(x => x.name === n);
       return `<option value="${esc(n)}"${n === S.cfg.device ? ' selected' : ''}>${esc(n)}${d ? ` (${d.ins} ent / ${d.outs} saí)` : ' (desconectada)'}</option>`; }).join('');
-  $('fIf').value = S.cfg.iface || S.iface || '';
+  // Placa de rede: automatica, as placas ligadas, e o que estiver salvo mas nao existir mais.
+  const saved = S.cfg.iface, list = S.ifaces || [];
+  const match = list.find(i => i.id === saved || i.ip === saved);
+  let opts = `<option value="">Automática (agora: ${esc(S.ifaceLabel || 'a rede principal')}${S.iface ? ', ' + esc(S.iface) : ''})</option>`;
+  opts += list.map(i => `<option value="${esc(i.id)}"${match && match.id === i.id ? ' selected' : ''}>${esc(i.label)}: ${esc(i.ip)}</option>`).join('');
+  if (saved && !match) opts += `<option value="${esc(saved)}" selected>${esc(saved)} (não encontrada agora)</option>`;
+  $('fIf').innerHTML = opts;
   $('fName').value = S.cfg.name;
+  $('fName').placeholder = S.autoName || '';
+  $('fNameMsg').textContent = `Até 24 letras. Vazio: usa o nome do computador (“${S.autoName || '?'}”).`;
   $('fTx').innerHTML = [0, 2, 8, 16, 24, 32, 64].map(n => `<option value="${n}"${n === S.cfg.tx ? ' selected' : ''}>${n ? n : 'Todas as entradas da placa'}</option>`).join('');
   $('fLat').value = [2, 4, 8, 16].includes(S.cfg.latency) ? S.cfg.latency : 4;
   $('fRate').value = [44100, 48000, 88200, 96000].includes(S.cfg.rate) ? S.cfg.rate : 0;
@@ -364,7 +384,7 @@ function range(n) { return Array.from({length: n}, (_, i) => i); }
 function renderGrids() {
   const chOf = s => { const f = S.flows.find(f => f.name === S.slots[s]); return f ? f.ch : 8; };
   const rxRows = range(S.nrx).filter(c => S.slots[Math.floor(c / 8)] && c % 8 < chOf(Math.floor(c / 8)));
-  const key = [S.ins, S.ntx, S.outs, rxRows.join(), S.cfg.name, S.slots.join('|')].join('/');
+  const key = [S.ins, S.ntx, S.outs, rxRows.join(), netName(), S.slots.join('|')].join('/');
   $('txSec').style.display = $('rxSec').style.display = S.running ? '' : 'none';
   const hint = $('engineHint');
   if (!S.running) {
@@ -377,8 +397,8 @@ function renderGrids() {
   hint.hidden = true;
   if (shape.key !== key) {
     shape.key = key;
-    const groups = range(Math.ceil(S.ntx / 8)).map(k => ({n: Math.min(8, S.ntx - k * 8), t: `${S.cfg.name} : ${k + 1}`}));
-    buildGrid('txGrid', 'tx', range(S.ins), range(S.ntx), r => `Entrada ${r + 1}`, c => `${S.cfg.name} : ${Math.floor(c / 8) + 1}, canal ${c % 8 + 1}`, groups);
+    const groups = range(Math.ceil(S.ntx / 8)).map(k => ({n: Math.min(8, S.ntx - k * 8), t: `${netName()} : ${k + 1}`}));
+    buildGrid('txGrid', 'tx', range(S.ins), range(S.ntx), r => `Entrada ${r + 1}`, c => `${netName()} : ${Math.floor(c / 8) + 1}, canal ${c % 8 + 1}`, groups);
     buildGrid('rxGrid', 'rx', rxRows, range(S.outs), r => `${SLOT[Math.floor(r / 8)]}${r % 8 + 1}  ${S.slots[Math.floor(r / 8)]}`, c => `Saída ${c + 1}`);
     $('rxGrid').parentElement.style.display = rxRows.length ? '' : 'none';
   }
@@ -417,10 +437,12 @@ function renderSlots() {
     const cur = S.slots[s];
     const names = usable.map(f => f.name);
     if (cur && !names.includes(cur)) names.unshift(cur);
-    const state = !cur ? badge('', 'vazio') : S.active[s] ? badge('ok', 'recebendo') : badge('warn', 'aguardando o fluxo aparecer');
+    const curFlow = usable.find(f => f.name === cur);
+    const state = (!cur ? badge('', 'vazio') : S.active[s] ? badge('ok', 'recebendo') : badge('warn', 'aguardando o fluxo aparecer'))
+      + (curFlow && isMaster(curFlow) ? ' ' + badge('info', 'relógio mestre') : '');
     h += `<div class="slot"><div class="hd"><b>Fluxo ${SLOT[s]}</b> ${state}</div><select data-slot="${s}" aria-label="Fluxo ${SLOT[s]}"><option value="">nenhum</option>` +
       names.map(n => { const f = usable.find(x => x.name === n);
-        return `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}${f ? ` (${f.ch} canais)` : ''}</option>`; }).join('') + '</select></div>';
+        return `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}${f ? ` (${f.ch} canais, ${esc(f.origin)}${isMaster(f) ? ', relógio mestre' : ''})` : ''}</option>`; }).join('') + '</select></div>';
   }
   if (!usable.length) h += '<div class="slot"><small>Nenhum fluxo AES67 visto na rede ainda. No Dante Controller: abra o dispositivo que vai transmitir, <b>Create Multicast Flow</b>, marque <b>AES67</b> e escolha os canais. O fluxo aparece aqui em até 30 s.</small></div>';
   const bad = S.flows.filter(f => !f.ok);
@@ -509,7 +531,6 @@ document.addEventListener('change', async e => {
 });
 $('setup').addEventListener('input', () => formTouched = true);
 // Mesmas regras que o programa aplica ao salvar (ui.rs): IP vazio ou IPv4 valido; placa obrigatoria.
-const IP4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 function fieldMsg(input, msgId, error, normal) {
   input.setAttribute('aria-invalid', error ? 'true' : 'false');
   $(msgId).className = 'msg' + (error ? ' err' : '');
@@ -517,16 +538,13 @@ function fieldMsg(input, msgId, error, normal) {
   return !error;
 }
 function validate() {
-  const ip = $('fIf').value.trim();
-  const a = fieldMsg($('fIf'), 'fIfMsg', ip && !IP4.test(ip) ? 'IP inválido. Use quatro números de 0 a 255, como 192.168.1.50.' : '', 'Vazio: o programa escolhe sozinho.');
+  const a = true; // a placa de rede vem de uma lista: nao ha o que digitar errado
   const b = fieldMsg($('fDev'), 'fDevMsg', $('fDev').value ? '' : 'Escolha a placa de áudio.', '');
   return a && b;
 }
-$('fIf').addEventListener('blur', validate);
-$('fIf').addEventListener('input', () => { if ($('fIf').getAttribute('aria-invalid') === 'true') validate(); });
 $('fDev').addEventListener('change', validate);
 $('fSave').onclick = async () => {
-  if (!validate()) return (($('fIf').getAttribute('aria-invalid') === 'true') ? $('fIf') : $('fDev')).focus();
+  if (!validate()) return $('fDev').focus();
   const btn = $('fSave');
   btn.disabled = true; btn.textContent = 'Salvando…';
   const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value});

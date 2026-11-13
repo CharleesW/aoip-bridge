@@ -12,7 +12,9 @@ pub const MAX_CH: usize = 64;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub device: String,
+    /// Placa de rede: "" = automatica; o nome da placa ("Ethernet", "en0"); ou um IP fixo.
     pub iface: String,
+    /// Nome que aparece na rede. "" = automatico (o nome do computador).
     pub name: String,
     /// 0 = todas as entradas da placa.
     pub tx_channels: usize,
@@ -29,7 +31,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            device: String::new(), iface: String::new(), name: "Bridge".into(), tx_channels: 0,
+            device: String::new(), iface: String::new(), name: String::new(), tx_channels: 0,
             latency_ms: 4, rate: 0, rx: vec![String::new(); RX_SLOTS], tx_map: None, rx_map: None,
         }
     }
@@ -44,7 +46,8 @@ impl Config {
             match k.trim() {
                 "device" => c.device = v.into(),
                 "iface" => c.iface = v.into(),
-                "name" if !v.is_empty() => c.name = v.into(),
+                // Os nomes fixos das versoes antigas viram "automatico" (nome do computador).
+                "name" => c.name = if LEGACY_NAMES.contains(&v) { String::new() } else { v.into() },
                 "tx_channels" => c.tx_channels = v.parse().unwrap_or(0),
                 "latency_ms" => c.latency_ms = v.parse().unwrap_or(4).clamp(1, 100),
                 "rate" => c.rate = v.parse().unwrap_or(0),
@@ -60,6 +63,12 @@ impl Config {
             }
         }
         c
+    }
+
+    /// Nome dos fluxos na rede: o escolhido, ou o automatico.
+    pub fn flow_name(&self, auto: &str) -> String {
+        let n = self.name.trim();
+        if n.is_empty() { auto.to_string() } else { clip(n, NAME_MAX) }
     }
 
     pub fn to_text(&self) -> String {
@@ -78,6 +87,59 @@ impl Config {
             t += &format!("rx_map={m}\n");
         }
         t
+    }
+}
+
+/// Nomes padrao das versoes antigas (tratados como "automatico").
+const LEGACY_NAMES: [&str; 3] = ["Bridge", "ASIO", "Mac"];
+/// Tamanho maximo do nome na rede (o Dante Controller corta nomes longos).
+pub const NAME_MAX: usize = 24;
+
+fn clip(s: &str, max: usize) -> String {
+    s.chars().filter(|c| !c.is_control()).take(max).collect::<String>().trim().to_string()
+}
+
+/// Nome automatico: o nome do computador, mais um sufixo para diferenciar programas no
+/// mesmo computador (ex.: "PC-IGREJA" e "PC-IGREJA Virtual").
+pub fn auto_name(computer: &str, suffix: &str) -> String {
+    let base = computer.trim().trim_end_matches(".local");
+    let base = if base.is_empty() { "AoIP" } else { base };
+    let room = NAME_MAX.saturating_sub(suffix.chars().count());
+    format!("{}{}", clip(base, room), suffix)
+}
+
+/// Nome do aparelho a partir do nome de um fluxo ("Ui24R-ab12 : 3" -> "Ui24R-ab12").
+pub fn device_of_flow(flow: &str) -> &str {
+    flow.rsplit_once(" : ").map_or(flow, |(d, _)| d).trim()
+}
+
+/// Uma placa de rede do computador.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetIface {
+    /// Nome no sistema, guardado na configuracao ("Ethernet", "en0").
+    pub id: String,
+    /// Como aparece no painel ("Wi-Fi (en0)").
+    pub label: String,
+    pub ip: std::net::Ipv4Addr,
+}
+
+/// Decide a placa de rede a partir do que foi salvo. Devolve o IP a usar (None = escolher
+/// sozinho) e um aviso quando o que foi salvo nao existe mais (outra rede, cabo solto):
+/// nesse caso volta para o automatico em vez de falhar.
+pub fn choose_iface(saved: &str, list: &[NetIface]) -> (Option<std::net::Ipv4Addr>, Option<String>) {
+    let saved = saved.trim();
+    if saved.is_empty() {
+        return (None, None);
+    }
+    if let Ok(ip) = saved.parse::<std::net::Ipv4Addr>() {
+        if list.iter().any(|i| i.ip == ip) {
+            return (Some(ip), None);
+        }
+        return (None, Some(format!("O IP salvo ({saved}) nao existe nesta rede; usando a placa de rede automatica.")));
+    }
+    match list.iter().find(|i| i.id == saved) {
+        Some(i) => (Some(i.ip), None),
+        None => (None, Some(format!("A placa de rede \"{saved}\" nao esta ligada; usando a placa de rede automatica."))),
     }
 }
 
@@ -121,7 +183,19 @@ pub struct Status {
     /// Taxa em que a placa foi aberta (Hz).
     pub rate: u32,
     pub ptp: bool,
+    /// Identidade do relogio mestre (hexadecimal), o IP e o nome de quem e o mestre.
     pub grandmaster: String,
+    pub gm_ip: String,
+    pub gm_name: String,
+    /// Este programa e o relogio mestre.
+    pub gm_self: bool,
+    /// Nome em uso na rede e o nome automatico (para o painel sugerir).
+    pub name: String,
+    pub auto_name: String,
+    /// Placa de rede em uso, como aparece no painel.
+    pub iface_label: String,
+    /// Aviso que nao impede o funcionamento (ex.: voltou para a rede automatica).
+    pub notice: String,
     pub tx_fill: usize,
     pub underruns: u64,
     pub overruns: u64,
@@ -132,6 +206,8 @@ pub struct Flow {
     pub name: String,
     pub addr: String,
     pub channels: u8,
+    /// IP de quem envia.
+    pub origin: String,
     /// 48 kHz, L24/L16: da para receber.
     pub compatible: bool,
 }
@@ -143,6 +219,8 @@ pub struct Shared {
     pub rx: MatrixCell,
     /// (nome, entradas, saidas)
     pub devices: Mutex<Vec<(String, usize, usize)>>,
+    /// Placas de rede do computador (para escolher no painel).
+    pub ifaces: Mutex<Vec<NetIface>>,
     pub status: Mutex<Status>,
     pub flows: Mutex<Vec<Flow>>,
     pub slot_active: Mutex<Vec<bool>>,
@@ -157,7 +235,7 @@ impl Shared {
         let peaks = || (0..MAX_CH).map(|_| AtomicU32::new(0)).collect();
         Self {
             config: Mutex::new(config), config_path, tx: MatrixCell::new(), rx: MatrixCell::new(),
-            devices: Mutex::new(vec![]), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
+            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
             slot_active: Mutex::new(vec![false; RX_SLOTS]), in_peak: peaks(), rx_peak: peaks(),
             restart: AtomicBool::new(false), quit: AtomicBool::new(false),
         }
@@ -209,6 +287,35 @@ mod tests {
         c.rx_map = Some(String::new());
         assert_eq!(Config::parse(&c.to_text()), c);
         assert_eq!(Config::parse("lixo\nlatency_ms=999\nrx9=x\n").latency_ms, 100);
+    }
+
+    #[test]
+    fn names() {
+        assert_eq!(Config::parse("name=Bridge\n").name, "", "nome antigo vira automatico");
+        assert_eq!(Config::parse("name=ASIO\n").flow_name("PC-IGREJA Virtual"), "PC-IGREJA Virtual");
+        assert_eq!(Config::parse("name=Mesa Louvor\n").flow_name("PC"), "Mesa Louvor");
+        assert_eq!(auto_name("PC-IGREJA", ""), "PC-IGREJA");
+        assert_eq!(auto_name("MacBook-Pro.local", " Virtual"), "MacBook-Pro Virtual");
+        assert_eq!(auto_name("", ""), "AoIP");
+        assert_eq!(auto_name("UM-NOME-DE-COMPUTADOR-MUITO-COMPRIDO", " Virtual").chars().count(), NAME_MAX);
+        assert_eq!(device_of_flow("Ui24R-ab12 : 3"), "Ui24R-ab12");
+        assert_eq!(device_of_flow("Fluxo solto"), "Fluxo solto");
+    }
+
+    #[test]
+    fn iface_choice() {
+        let list = vec![
+            NetIface { id: "Ethernet".into(), label: "Ethernet".into(), ip: "10.0.0.7".parse().unwrap() },
+            NetIface { id: "Wi-Fi".into(), label: "Wi-Fi".into(), ip: "192.168.5.20".parse().unwrap() },
+        ];
+        assert_eq!(choose_iface("", &list), (None, None));
+        assert_eq!(choose_iface("Wi-Fi", &list).0, Some("192.168.5.20".parse().unwrap()));
+        assert_eq!(choose_iface("10.0.0.7", &list).0, Some("10.0.0.7".parse().unwrap()));
+        // IP de outra rede (a de casa, levada para a igreja): volta para o automatico com aviso
+        let (ip, note) = choose_iface("192.168.5.49", &list);
+        assert!(ip.is_none() && note.unwrap().contains("192.168.5.49"));
+        let (ip, note) = choose_iface("Ethernet 2", &list);
+        assert!(ip.is_none() && note.unwrap().contains("Ethernet 2"));
     }
 
     #[test]

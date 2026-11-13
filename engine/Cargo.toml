@@ -8,3 +8,10 @@ description = "Motor de rede do AoIP Bridge (PTP, SAP, RTP) independente da plac
 [dependencies]
 aoip-core = { path = "../core" }
 socket2 = { version = "0.5", features = ["all"] }
+
+# Lista das placas de rede e nome dos computadores (bibliotecas do proprio sistema).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }

@@ -64,10 +64,12 @@ pub const OWN_PRIORITY1: u8 = 254;
 /// Sem Announce de um relogio melhor por este tempo, assume o papel de mestre.
 pub const MASTER_TIMEOUT_NS: i128 = 7_000_000_000;
 
-/// Identidade de relogio derivada do IP (formato EUI-64 de uso local).
-pub fn clock_id(ip: std::net::Ipv4Addr) -> [u8; 8] {
+/// Identidade de relogio derivada do IP (formato EUI-64 de uso local). `instance` diferencia
+/// dois programas no mesmo computador (o AoIP Bridge e a placa virtual), que senao teriam a
+/// mesma identidade e poderiam virar mestres ao mesmo tempo.
+pub fn clock_id(ip: std::net::Ipv4Addr, instance: u8) -> [u8; 8] {
     let o = ip.octets();
-    [0x02, 0x00, o[0], 0xff, 0xfe, o[1], o[2], o[3]]
+    [0x02, instance, o[0], 0xff, 0xfe, o[1], o[2], o[3]]
 }
 
 fn header(kind: u8, len: u16, flags0: u8, id: [u8; 8], seq: u16, control: u8, log_interval: i8) -> Vec<u8> {
@@ -256,7 +258,7 @@ mod tests {
 
     #[test]
     fn own_clock_messages_round_trip() {
-        let id = clock_id(std::net::Ipv4Addr::new(192, 168, 5, 10));
+        let id = clock_id(std::net::Ipv4Addr::new(192, 168, 5, 10), 0);
         assert_eq!(id, [0x02, 0x00, 192, 0xff, 0xfe, 168, 5, 10]);
         let sync = build_sync(id, 7);
         assert_eq!(parse(&sync).unwrap(), (0, Msg::Sync { seq: 7, two_step: true, ts_ns: 0 }));
@@ -276,7 +278,9 @@ mod tests {
 
     #[test]
     fn election_waits_yields_and_breaks_ties() {
-        let (a, b) = (clock_id(std::net::Ipv4Addr::new(192, 168, 5, 10)), clock_id(std::net::Ipv4Addr::new(192, 168, 5, 48)));
+        let (a, b) = (clock_id(std::net::Ipv4Addr::new(192, 168, 5, 10), 0), clock_id(std::net::Ipv4Addr::new(192, 168, 5, 48), 0));
+        // dois programas no mesmo computador nao tem a mesma identidade
+        assert_ne!(clock_id(std::net::Ipv4Addr::new(192, 168, 5, 10), 1), a);
         let sec = 1_000_000_000i128;
         let mut e = Election::new(b, 0);
         assert!(!e.is_master(6 * sec), "escuta a rede antes de assumir");

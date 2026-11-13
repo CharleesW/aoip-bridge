@@ -10,7 +10,7 @@
 //! ou a configuracao muda, este programa termina e o macOS (launchd) o abre de novo.
 use aoip_core::state::Shared;
 use aoip_core::{ui, RATE};
-use aoip_engine::{realtime_thread_for, refresh_status, report_stats, resolve_iface, selftest, start_network, Capture, Network, Playback};
+use aoip_engine::{realtime_thread_for, refresh_ifaces, refresh_status, report_stats, resolve_iface, selftest, start_network, Capture, Network, Playback};
 use std::net::{TcpListener, UdpSocket};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -70,11 +70,12 @@ fn main() {
         c.device = DRIVER_NAME.into();
         c.rate = RATE;
         if first_run {
-            c.name = "Mac".into();
             c.tx_channels = 8; // um fluxo de 8 canais para comecar; o painel permite mudar
         }
     }
     *shared.devices.lock().unwrap() = vec![(DRIVER_NAME.to_string(), CHANNELS, CHANNELS)];
+    refresh_ifaces(&shared);
+    shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), " Virtual");
     let panel: u16 = std::env::var("AOIP_PANEL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8788);
 
     // Uma copia so: quem chegar depois encontra a porta ocupada e sai.
@@ -104,7 +105,7 @@ fn main() {
 
     shared.status.lock().unwrap().error.clear();
     let cfg = shared.config.lock().unwrap().clone();
-    let started = resolve_iface(&cfg).and_then(|iface| start_network(&shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
+    let started = resolve_iface(&shared, &cfg).and_then(|iface| start_network(&shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
     let mut engine: Option<(Network, Capture, Playback)> = match started {
         Ok(x) => {
             let mut st = shared.status.lock().unwrap();

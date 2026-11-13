@@ -11,7 +11,7 @@
 
 use aoip_core::state::Shared;
 use aoip_core::ui;
-use aoip_engine::{open_browser, realtime_thread_for, refresh_status, report_stats, resolve_iface, selftest, start_network, Capture, Network, Playback};
+use aoip_engine::{open_browser, realtime_thread_for, refresh_ifaces, refresh_status, report_stats, resolve_iface, selftest, start_network, Capture, Network, Playback};
 use std::ffi::c_void;
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
@@ -178,46 +178,64 @@ fn start_engine() -> Result<Engine, Box<dyn std::error::Error>> {
         c.device = DRIVER_NAME.into();
         c.rate = RATE;
         if first_run {
-            c.name = "ASIO".into();
             c.tx_channels = 8; // um fluxo de 8 canais para comecar; o painel permite mudar
         }
     }
     *shared.devices.lock().unwrap() = vec![(DRIVER_NAME.to_string(), CHANNELS, CHANNELS)];
+    shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), " Virtual");
     // A porta do painel tambem serve de trava: so um programa por vez pode usar o driver.
     // Dois programas com o driver aberto seriam dois remetentes no mesmo fluxo de rede.
     let listener = TcpListener::bind(("127.0.0.1", PANEL_PORT)).map_err(|_| {
         "O AoIP Bridge ASIO ja esta aberto em outro programa. Feche o outro programa e tente de novo."
     })?;
     let cfg = shared.config.lock().unwrap().clone();
-    let started = resolve_iface(&cfg).and_then(|iface| start_network(&shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
-    let (network, capture, playback) = match started {
-        Ok(x) => x,
-        Err(e) => {
-            return Err(e); // o `listener` e solto aqui, liberando a trava
-        }
-    };
+    let started = resolve_iface(&shared, &cfg).and_then(|iface| start_network(&shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
+    // O painel abre mesmo se a rede falhar: e nele que se corrige a placa de rede.
     ui::serve(shared.clone(), listener);
     {
         let mut st = shared.status.lock().unwrap();
-        st.running = true;
+        st.running = true; // a placa virtual em si funciona; o que pode faltar e a rede
         st.device = DRIVER_NAME.into();
-        (st.ins, st.outs, st.net_tx, st.rate) = (CHANNELS, CHANNELS, network.net_tx, RATE);
+        (st.ins, st.outs, st.rate) = (CHANNELS, CHANNELS, RATE);
     }
-    housekeeping(shared.clone(), network);
-    Ok(Engine { shared, capture: Mutex::new(capture), playback: Mutex::new(playback) })
+    match started {
+        Ok((network, capture, playback)) => {
+            shared.status.lock().unwrap().net_tx = network.net_tx;
+            housekeeping(shared.clone(), Some(network));
+            Ok(Engine { shared, capture: Mutex::new(capture), playback: Mutex::new(playback) })
+        }
+        Err(e) => {
+            // Sem rede, o programa de audio continua com a placa (em silencio) em vez de
+            // dizer "indisponivel", e o painel abre sozinho mostrando o motivo.
+            shared.status.lock().unwrap().error = format!(
+                "A rede nao abriu: {e} Escolha a placa de rede em Configuracao, salve, e depois feche e abra de novo o programa de audio."
+            );
+            housekeeping(shared.clone(), None);
+            open_browser(&format!("http://127.0.0.1:{PANEL_PORT}"));
+            let capture: Capture = Box::new(|_: &[f32]| {});
+            let playback: Playback = Box::new(|out: &mut [f32]| out.fill(0.0));
+            Ok(Engine { shared, capture: Mutex::new(capture), playback: Mutex::new(playback) })
+        }
+    }
 }
 
 /// Mantem o painel atualizado. Mudancas de configuracao so valem na proxima vez que o
 /// programa de audio abrir, porque a rede nao pode ser religada com o audio rodando.
-fn housekeeping(shared: Arc<Shared>, network: Network) {
+fn housekeeping(shared: Arc<Shared>, network: Option<Network>) {
     std::thread::spawn(move || {
         let mut ticks = 0u32;
         loop {
             std::thread::sleep(Duration::from_millis(250));
             ticks += 1;
-            refresh_status(&shared, &network);
-            if selftest() && ticks % 20 == 0 {
-                report_stats(&shared, &network);
+            match &network {
+                Some(n) => {
+                    refresh_status(&shared, n);
+                    if selftest() && ticks % 20 == 0 {
+                        report_stats(&shared, n);
+                    }
+                }
+                None if ticks % 20 == 0 => refresh_ifaces(&shared),
+                None => {}
             }
             if shared.restart.swap(false, Relaxed) {
                 shared.status.lock().unwrap().error =

@@ -134,14 +134,20 @@ fn action(shared: &Shared, path: &str, query: &str) -> Result<(), String> {
             shared.config.lock().unwrap().rx[slot] = q("name").unwrap_or_default();
         }
         "/api/setup" => {
-            let iface = q("iface").unwrap_or_default();
-            if !iface.is_empty() && iface.parse::<std::net::Ipv4Addr>().is_err() {
-                return Err("IP da rede invalido".into());
+            // Placa de rede: vazio (automatica), o nome de uma placa, ou um IP fixo.
+            let iface = q("iface").unwrap_or_default().trim().to_string();
+            let looks_ip = !iface.is_empty() && iface.chars().all(|c| c.is_ascii_digit() || c == '.');
+            if (looks_ip && iface.parse::<std::net::Ipv4Addr>().is_err()) || iface.len() > 80 || iface.chars().any(char::is_control) {
+                return Err("Placa de rede ou IP invalido".into());
+            }
+            let name = q("name").unwrap_or_default().trim().to_string();
+            if name.chars().count() > crate::state::NAME_MAX || name.chars().any(char::is_control) {
+                return Err(format!("O nome pode ter ate {} letras.", crate::state::NAME_MAX));
             }
             let mut c = shared.config.lock().unwrap();
             c.device = q("device").unwrap_or_default();
             c.iface = iface;
-            c.name = q("name").filter(|n| !n.trim().is_empty()).unwrap_or("Bridge".into());
+            c.name = name; // vazio = automatico (nome do computador)
             c.tx_channels = q("tx").and_then(|v| v.parse().ok()).unwrap_or(0);
             c.latency_ms = q("latency").and_then(|v| v.parse().ok()).unwrap_or(4).clamp(1, 100);
             c.rate = q("rate").and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -174,16 +180,20 @@ fn state_json(shared: &Shared) -> String {
     let devices: Vec<String> = shared.devices.lock().unwrap().iter()
         .map(|(n, i, o)| format!("{{\"name\":{},\"ins\":{i},\"outs\":{o}}}", json_str(n))).collect();
     let flows: Vec<String> = shared.flows.lock().unwrap().iter()
-        .map(|f| format!("{{\"name\":{},\"addr\":{},\"ch\":{},\"ok\":{}}}", json_str(&f.name), json_str(&f.addr), f.channels, f.compatible)).collect();
+        .map(|f| format!("{{\"name\":{},\"addr\":{},\"ch\":{},\"ok\":{},\"origin\":{}}}", json_str(&f.name), json_str(&f.addr), f.channels, f.compatible, json_str(&f.origin))).collect();
+    let ifaces: Vec<String> = shared.ifaces.lock().unwrap().iter()
+        .map(|i| format!("{{\"id\":{},\"label\":{},\"ip\":\"{}\"}}", json_str(&i.id), json_str(&i.label), i.ip)).collect();
     let slots: Vec<String> = cfg.rx.iter().map(|s| json_str(s)).collect();
     let active: Vec<String> = shared.slot_active.lock().unwrap().iter().map(|b| b.to_string()).collect();
     format!(
         "{{\"running\":{},\"error\":{},\"device\":{},\"iface\":{},\"ins\":{},\"outs\":{},\"ntx\":{},\"rate\":{},\"nrx\":{NET_RX},\
-         \"ptp\":{},\"gm\":{},\"txFill\":{},\"under\":{},\"over\":{},\
+         \"ptp\":{},\"gm\":{},\"gmIp\":{},\"gmName\":{},\"gmSelf\":{},\"name\":{},\"autoName\":{},\"ifaceLabel\":{},\"notice\":{},\"ifaces\":[{}],\
+         \"txFill\":{},\"under\":{},\"over\":{},\
          \"cfg\":{{\"device\":{},\"iface\":{},\"name\":{},\"tx\":{},\"latency\":{},\"rate\":{}}},\
          \"devices\":[{}],\"flows\":[{}],\"slots\":[{}],\"active\":[{}],\"tx\":{},\"rx\":{},\"lvIn\":{},\"lvRx\":{}}}",
         st.running, json_str(&st.error), json_str(&st.device), json_str(&st.iface), st.ins, st.outs, st.net_tx, st.rate,
-        st.ptp, json_str(&st.grandmaster), st.tx_fill, st.underruns, st.overruns,
+        st.ptp, json_str(&st.grandmaster), json_str(&st.gm_ip), json_str(&st.gm_name), st.gm_self,
+        json_str(&st.name), json_str(&st.auto_name), json_str(&st.iface_label), json_str(&st.notice), ifaces.join(","), st.tx_fill, st.underruns, st.overruns,
         json_str(&cfg.device), json_str(&cfg.iface), json_str(&cfg.name), cfg.tx_channels, cfg.latency_ms, cfg.rate,
         devices.join(","), flows.join(","), slots.join(","), active.join(","),
         points(&shared.tx.snapshot()), points(&shared.rx.snapshot()),
@@ -283,9 +293,12 @@ mod tests {
         assert!(post("/api/preset?m=tx&kind=identity").contains("true"));
         assert_eq!(shared.tx.snapshot().points().len(), 4);
         assert!(post("/api/setup?device=Ui24R&iface=999.1.1.1").starts_with("HTTP/1.1 400"));
+        assert!(post("/api/setup?device=Ui24R&name=UM-NOME-COMPRIDO-DEMAIS-PARA-REDE").starts_with("HTTP/1.1 400"));
+        assert!(post("/api/setup?device=Ui24R&iface=Ethernet%202&name=Mesa").contains("true"));
+        assert_eq!(shared.config.lock().unwrap().iface, "Ethernet 2");
         assert!(post("/api/setup?device=Ui24R&iface=10.0.0.5&name=&tx=16&latency=8").contains("true"));
         assert!(shared.restart.load(Relaxed));
-        assert_eq!(shared.config.lock().unwrap().name, "Bridge");
+        assert_eq!(shared.config.lock().unwrap().name, "", "vazio = nome do computador");
 
         // protecoes: POST sem o cabecalho proprio e Host externo sao recusados
         assert!(request(port, "POST /api/quit HTTP/1.1\r\nHost: localhost\r\n\r\n").starts_with("HTTP/1.1 404"));

@@ -7,7 +7,7 @@
 //! A parte de rede fica no crate `aoip-engine`; aqui fica so a placa (cpal).
 use aoip_core::state::Shared;
 use aoip_core::{ui, RATE};
-use aoip_engine::{open_browser, refresh_status, report, report_stats, resolve_iface, selftest, start_network, Network, Res};
+use aoip_engine::{open_browser, refresh_ifaces, refresh_status, report, report_stats, resolve_iface, selftest, start_network, Network, Res};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 use std::net::TcpListener;
@@ -161,7 +161,7 @@ fn start_engine(shared: &Arc<Shared>, host: &cpal::Host) -> Res<Engine> {
     if let Some(own) = OWN_DRIVERS.iter().find(|d| d.eq_ignore_ascii_case(cfg.device.trim())) {
         return Err(format!("\"{own}\" e o driver virtual deste mesmo programa e nao pode ser usado como placa aqui. Escolha a placa de som de verdade em Configuracao, ou feche este programa e use o driver direto no REAPER.").into());
     }
-    let iface = resolve_iface(&cfg)?;
+    let iface = resolve_iface(shared, &cfg)?;
 
     let missing = |what: &str| format!("A placa \"{}\" nao foi encontrada ({what}). Confira se esta ligada e escolha de novo em Configuracao.", cfg.device);
     let in_dev = find_device(host, &cfg.device, true).ok_or_else(|| missing("entrada"))?;
@@ -225,9 +225,11 @@ fn main() {
     let shared = Arc::new(Shared::load(std::path::Path::new(&home).join(".aoip-bridge.conf")));
     let host = audio_host();
     *shared.devices.lock().unwrap() = list_devices(&host);
+    refresh_ifaces(&shared);
     if let Some(ip) = aoip_engine::net::guess_iface() {
         shared.status.lock().unwrap().iface = ip.to_string();
     }
+    shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), "");
     ui::serve(shared.clone(), listener);
     println!("painel: {url}");
     if selftest() {
@@ -271,8 +273,13 @@ fn main() {
         }
         if let Some(e) = &engine {
             refresh_status(&shared, &e.network);
-        } else if shared.devices.lock().unwrap().is_empty() {
-            *shared.devices.lock().unwrap() = list_devices(&host);
+        } else {
+            if shared.devices.lock().unwrap().is_empty() {
+                *shared.devices.lock().unwrap() = list_devices(&host);
+            }
+            if ticks % 20 == 0 {
+                refresh_ifaces(&shared);
+            }
         }
     }
 }
