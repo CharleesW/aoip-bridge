@@ -61,6 +61,9 @@ pub fn announce_rank(b: &[u8]) -> Option<(u8, [u8; 8])> {
 
 /// Prioridade 1 anunciada pelo relogio proprio (a pior que nao e "so seguidor").
 pub const OWN_PRIORITY1: u8 = 254;
+/// Prioridade de quem esta com uma placa de verdade (a mesa de som): ganha das placas
+/// virtuais, que so assumem o relogio se ele sair da rede. Aparelhos Dante (128) ganham dele.
+pub const CARD_PRIORITY1: u8 = 250;
 /// Sem Announce de um relogio melhor por este tempo, assume o papel de mestre.
 pub const MASTER_TIMEOUT_NS: i128 = 7_000_000_000;
 
@@ -105,10 +108,10 @@ pub fn build_follow_up(id: [u8; 8], seq: u16, ts_ns: u128) -> Vec<u8> {
 }
 
 /// Announce do relogio proprio. 1 por segundo.
-pub fn build_announce(id: [u8; 8], seq: u16, ts_ns: u128) -> Vec<u8> {
+pub fn build_announce(id: [u8; 8], seq: u16, ts_ns: u128, priority1: u8) -> Vec<u8> {
     let mut b = header(0xb, 64, 0, id, seq, 5, 0);
     put_ts(&mut b, ts_ns);
-    b[47] = OWN_PRIORITY1;
+    b[47] = priority1;
     b[48] = 248; // classe: relogio livre, sem referencia externa
     b[49] = 0xfe; // exatidao desconhecida
     b[50..52].copy_from_slice(&0xffffu16.to_be_bytes());
@@ -121,18 +124,24 @@ pub fn build_announce(id: [u8; 8], seq: u16, ts_ns: u128) -> Vec<u8> {
 /// Decide se este computador deve gerar o relogio.
 pub struct Election {
     own: [u8; 8],
+    priority1: u8,
     last_better: i128,
 }
 
 impl Election {
     /// `now_ns`: relogio monotonico local. Comeca esperando, para ouvir a rede primeiro.
-    pub fn new(own: [u8; 8], now_ns: i128) -> Self {
-        Self { own, last_better: now_ns }
+    /// `priority1`: `CARD_PRIORITY1` com placa de verdade, `OWN_PRIORITY1` na placa virtual.
+    pub fn new(own: [u8; 8], priority1: u8, now_ns: i128) -> Self {
+        Self { own, priority1, last_better: now_ns }
+    }
+
+    pub fn priority1(&self) -> u8 {
+        self.priority1
     }
 
     /// Registra um Announce recebido (prioridade 1 e identidade do grandmaster).
     pub fn on_announce(&mut self, priority1: u8, gmid: [u8; 8], now_ns: i128) {
-        if gmid != self.own && (priority1, gmid) < (OWN_PRIORITY1, self.own) {
+        if gmid != self.own && (priority1, gmid) < (self.priority1, self.own) {
             self.last_better = now_ns;
         }
     }
@@ -265,7 +274,7 @@ mod tests {
         assert_eq!(source_id(&sync), Some(id));
         let fu = build_follow_up(id, 7, 1_700_000_000_123_456_789);
         assert_eq!(parse(&fu).unwrap().1, Msg::FollowUp { seq: 7, ts_ns: 1_700_000_000_123_456_789 });
-        let ann = build_announce(id, 1, 0);
+        let ann = build_announce(id, 1, 0, OWN_PRIORITY1);
         assert_eq!(ann.len(), 64);
         assert_eq!(parse(&ann).unwrap().1, Msg::Announce { gmid: id });
         assert_eq!(announce_rank(&ann), Some((OWN_PRIORITY1, id)));
@@ -282,7 +291,7 @@ mod tests {
         // dois programas no mesmo computador nao tem a mesma identidade
         assert_ne!(clock_id(std::net::Ipv4Addr::new(192, 168, 5, 10), 1), a);
         let sec = 1_000_000_000i128;
-        let mut e = Election::new(b, 0);
+        let mut e = Election::new(b, OWN_PRIORITY1, 0);
         assert!(!e.is_master(6 * sec), "escuta a rede antes de assumir");
         assert!(e.is_master(8 * sec));
         // aparelho de verdade (prioridade 128): cede enquanto ele anuncia
@@ -292,11 +301,21 @@ mod tests {
         // outro computador com o programa: ganha a identidade menor (a), b cede
         e.on_announce(OWN_PRIORITY1, a, 20 * sec);
         assert!(!e.is_master(21 * sec));
-        let mut ea = Election::new(a, 0);
+        let mut ea = Election::new(a, OWN_PRIORITY1, 0);
         ea.on_announce(OWN_PRIORITY1, b, 20 * sec);
         assert!(ea.is_master(21 * sec));
         // o proprio eco nao conta
         ea.on_announce(OWN_PRIORITY1, a, 30 * sec);
         assert!(ea.is_master(31 * sec));
+        // quem esta com a mesa (placa de verdade) ganha da placa virtual, mesmo com
+        // identidade maior; a virtual so assume quando ele some da rede
+        let (card, virt) = (clock_id(std::net::Ipv4Addr::new(192, 168, 5, 90), 0), clock_id(std::net::Ipv4Addr::new(192, 168, 5, 2), 1));
+        let mut ev = Election::new(virt, OWN_PRIORITY1, 0);
+        let mut ec = Election::new(card, CARD_PRIORITY1, 0);
+        ev.on_announce(CARD_PRIORITY1, card, 40 * sec);
+        ec.on_announce(OWN_PRIORITY1, virt, 40 * sec);
+        assert!(!ev.is_master(41 * sec) && ec.is_master(41 * sec));
+        assert!(ev.is_master(48 * sec), "a mesa caiu: a virtual assume");
+        assert_eq!(announce_rank(&build_announce(card, 1, 0, CARD_PRIORITY1)), Some((CARD_PRIORITY1, card)));
     }
 }

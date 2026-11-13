@@ -149,7 +149,9 @@ pub fn realtime_thread_for(_period: Duration, _busy: Duration) -> bool {
 fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
     let own = ptp::clock_id(iface, instance);
     let follower = Arc::new(Mutex::new(ptp::Follower::default()));
-    let election = Arc::new(Mutex::new(ptp::Election::new(own, clock.local_ns())));
+    // Quem esta com placa de verdade (a mesa) tem preferencia para ser o relogio.
+    let priority1 = if instance == 0 { ptp::CARD_PRIORITY1 } else { ptp::OWN_PRIORITY1 };
+    let election = Arc::new(Mutex::new(ptp::Election::new(own, priority1, clock.local_ns())));
     for port in [ptp::EVENT_PORT, ptp::GENERAL_PORT] {
         let sock = net::listener(ptp::GROUP, port, iface)
             .map_err(|e| format!("Nao consegui abrir a porta {port} do relogio PTP ({e}). Outro programa de audio em rede pode estar usando."))?;
@@ -215,7 +217,7 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
             let _ = sock.send_to(&ptp::build_sync(own, seq), (ptp::GROUP, ptp::EVENT_PORT));
             let _ = sock.send_to(&ptp::build_follow_up(own, seq, now), (ptp::GROUP, ptp::GENERAL_PORT));
             if tick % 8 == 0 {
-                let _ = sock.send_to(&ptp::build_announce(own, (tick / 8) as u16, now), (ptp::GROUP, ptp::GENERAL_PORT));
+                let _ = sock.send_to(&ptp::build_announce(own, (tick / 8) as u16, now, priority1), (ptp::GROUP, ptp::GENERAL_PORT));
             }
             tick = tick.wrapping_add(1);
         }

@@ -70,7 +70,7 @@ fn main() {
         c.device = DRIVER_NAME.into();
         c.rate = RATE;
         if first_run {
-            c.tx_channels = 8; // um fluxo de 8 canais para comecar; o painel permite mudar
+            c.tx_channels = 0; // todos os 32 canais, como uma placa 32x32
         }
     }
     *shared.devices.lock().unwrap() = vec![(DRIVER_NAME.to_string(), CHANNELS, CHANNELS)];
