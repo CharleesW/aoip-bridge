@@ -3,72 +3,156 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AoIP Bridge</title>
-<link rel="icon" href="data:,">
+<title>AOIP-Bridge</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23171B21'/%3E%3Cg transform='translate(3.6 3.6) scale(.7)'%3E%3Cpath d='M4 18H8C12.5 18 11.5 6 16 6H20' fill='none' stroke='%23E8ECF0' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='4' cy='18' r='2.6' fill='%23E8ECF0'/%3E%3Ccircle cx='20' cy='6' r='2.6' fill='%23E8ECF0'/%3E%3Ccircle cx='12' cy='12' r='3' fill='%2326A88B' stroke='%23171B21' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E">
+<script>
+// Tema antes do primeiro desenho, para a tela nao piscar na cor errada.
+(function () {
+  var pref = 'system';
+  try { pref = localStorage.getItem('aoip-theme') || 'system'; } catch (e) {}
+  var dark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)');
+  window.applyTheme = function (p) {
+    pref = p;
+    document.documentElement.dataset.theme = p === 'system' ? (dark && !dark.matches ? 'light' : 'dark') : p;
+  };
+  window.themePref = function () { return pref; };
+  applyTheme(pref);
+  if (dark && dark.addEventListener) dark.addEventListener('change', function () { if (pref === 'system') applyTheme('system'); });
+})();
+</script>
 <style>
-:root{--bg:#14161a;--panel:#1d2026;--line:#2c313a;--text:#e6e8ec;--dim:#8d94a1;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#f5b84b;--on:#3ea6ff;--sel:#fff}
+/* ---------------------------------------------------------------------------
+   Tokens de design (docs/design/design-system.md). Componentes usam so os tokens
+   semanticos; valores de cor so aparecem aqui.
+   Paleta base: ink-900 #171B21, slate-800 #343C47, signal-500 #26A88B,
+   silver-400 #A8B1BC, paper-050 #F4F6F8.
+   --------------------------------------------------------------------------- */
+:root{
+  --font-ui:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:20px;--s6:24px;--s8:32px;
+  --r-sm:4px;--r-md:6px;--r-lg:8px;
+  /* tema escuro (padrao) */
+  --bg:#171B21;--surface:#1E232B;--field:#262C35;--hover:#2B323C;
+  --border:#2E3540;--border-strong:#3A4350;--border-input:#66727F;
+  --text:#E8ECF0;--text-2:#A8B1BC;--text-3:#8A95A3;
+  --action:#26A88B;--action-hover:#2DB899;--on-action:#0B1513;--focus:#7FD8C4;--select:#E8ECF0;
+  --ok:#4CC39A;--info:#6AA5E8;--warn:#D9A441;--err:#EC7F7F;
+  --ok-bg:rgba(35,139,104,.16);--info-bg:rgba(52,120,200,.18);--warn-bg:rgba(183,121,31,.18);--err-bg:rgba(196,71,71,.16);
+  --route:#26A88B;--on-route:#0B1513;--route-att:#1B6F5D;--on-route-att:#D6F2EA;--route-boost:#C98A2B;--on-route-boost:#171B21;
+  --meter-track:#0F1216;--grid-line:#262C35;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#F4F6F8;--surface:#FFFFFF;--field:#FFFFFF;--hover:#EEF1F4;
+  --border:#D5DBE2;--border-strong:#B9C2CC;--border-input:#7F8A97;
+  --text:#171B21;--text-2:#4A5564;--text-3:#5F6B79;
+  --action:#1B7F69;--action-hover:#176D5A;--on-action:#FFFFFF;--focus:#1B7F69;--select:#171B21;
+  --ok:#1B7455;--info:#2B66AD;--warn:#8A5A10;--err:#B03A3A;
+  --ok-bg:#E3F3ED;--info-bg:#E4EEFA;--warn-bg:#FBF0DC;--err-bg:#FBE6E6;
+  --route:#1B7F69;--on-route:#FFFFFF;--route-att:#8CC9BA;--on-route-att:#0B2A23;--route-boost:#C98A2B;--on-route-boost:#171B21;
+  --meter-track:#E3E8ED;--grid-line:#E6EAEF;
+  color-scheme:light;
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif}
-header{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
-header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 var(--font-ui);font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+
+/* cabecalho */
+header{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s5);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:5}
+header .mark{width:24px;height:24px;flex:none;color:var(--text)}
+header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
 header .sp{flex:1}
-button,select,input{font:inherit;color:var(--text);background:#262a32;border:1px solid var(--line);border-radius:6px;padding:6px 10px}
-button{cursor:pointer}button:hover{border-color:#4a5160}
-button.primary{background:var(--on);border-color:var(--on);color:#04121f;font-weight:600}
-button.ghost{background:none}
-main{max-width:1280px;margin:0 auto;padding:18px 20px 60px;display:grid;gap:16px}
-section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
-h2{font-size:14px;margin:0 0 4px;font-weight:600}
-.sub{color:var(--dim);margin:0 0 12px;font-size:13px}
-.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
-.step{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;grid-template-columns:22px 1fr;gap:2px 8px}
-.step b{font-weight:600}.step small{grid-column:2;color:var(--dim)}
-.dot{width:12px;height:12px;border-radius:50%;margin-top:4px;background:var(--dim)}
-.ok .dot{background:var(--ok)}.bad .dot{background:var(--bad)}.warn .dot{background:var(--warn)}
-.alert{border-left:3px solid var(--bad);background:#2a1d1f;padding:10px 12px;border-radius:6px;margin-top:12px}
-.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:end}
-.form label{display:grid;gap:4px;color:var(--dim);font-size:12px}
+header .theme{display:flex;align-items:center;gap:var(--s2);color:var(--text-2);font-size:12px}
+
+/* controles */
+button,select,input{font:inherit;color:var(--text);background:var(--field);border:1px solid var(--border-input);border-radius:var(--r-md);padding:6px 10px}
+button{cursor:pointer;border-color:var(--border-strong)}
+button:hover{background:var(--hover)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--action);border-color:var(--action);color:var(--on-action);font-weight:600}
+button.primary:hover{background:var(--action-hover);border-color:var(--action-hover)}
+button.subtle{background:none;border-color:transparent;color:var(--text-2)}
+button.subtle:hover{background:var(--hover);color:var(--text)}
+input[type=range]{accent-color:var(--action);border:0;background:none}
+
+/* estrutura */
+main{max-width:1280px;margin:0 auto;padding:var(--s5) var(--s5) 60px;display:grid;gap:var(--s4)}
+section{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s4)}
+h2{font-size:16px;margin:0 0 var(--s1);font-weight:600}
+.sub{color:var(--text-2);margin:0 0 var(--s3);font-size:13px}
+code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding:1px 5px;border-radius:var(--r-sm)}
+
+/* estado: sempre icone + texto, nunca so cor */
+.badge{display:inline-flex;align-items:center;gap:var(--s1);font-size:12px;line-height:1;padding:4px 8px 4px 6px;border-radius:99px;border:1px solid var(--border-strong);color:var(--text-2);white-space:nowrap}
+.badge.ok{color:var(--ok);border-color:transparent;background:var(--ok-bg)}
+.badge.bad{color:var(--err);border-color:transparent;background:var(--err-bg)}
+.badge.warn{color:var(--warn);border-color:transparent;background:var(--warn-bg)}
+.badge.info{color:var(--info);border-color:transparent;background:var(--info-bg)}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:var(--s3)}
+.step{border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s3);display:grid;grid-template-columns:16px 1fr;gap:2px var(--s2);align-items:start;min-height:72px}
+.step .ic{margin-top:2px;color:var(--text-3)}
+.step.ok .ic{color:var(--ok)}.step.bad .ic{color:var(--err)}.step.warn .ic{color:var(--warn)}
+.step b{font-weight:600}.step small{grid-column:2;color:var(--text-2);font-size:13px}
+.alert{display:flex;gap:var(--s2);align-items:flex-start;border:1px solid transparent;border-left:3px solid var(--err);background:var(--err-bg);color:var(--text);padding:var(--s3);border-radius:var(--r-md);margin-top:var(--s3)}
+.alert .ic{color:var(--err);margin-top:2px}
+.alert.warn{border-left-color:var(--warn);background:var(--warn-bg)}.alert.warn .ic{color:var(--warn)}
+
+/* formulario */
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s3);align-items:end}
+.form label{display:grid;gap:var(--s1);color:var(--text-2);font-size:12px}
 .form input,.form select{width:100%}
-.bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.bar{display:flex;gap:var(--s2);align-items:center;margin-bottom:var(--s3);flex-wrap:wrap}
 .bar .sp{flex:1}
-.gridwrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:8px}
+details summary{cursor:pointer;font-weight:600;font-size:16px}
+
+/* matriz de roteamento */
+.gridwrap{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--r-lg)}
 table{border-collapse:separate;border-spacing:0}
 th,td{padding:0}
-thead th{position:sticky;top:0;background:var(--panel);z-index:2;font-weight:500;font-size:11px;color:var(--dim);height:26px;min-width:26px;text-align:center;border-bottom:1px solid var(--line)}
-thead tr.grp th{height:22px;color:var(--text);border-left:1px solid var(--line);font-size:11px;white-space:nowrap;overflow:hidden;max-width:0}
-tbody th{position:sticky;left:0;background:var(--panel);z-index:1;text-align:left;font-weight:500;font-size:12px;white-space:nowrap;padding:0 10px 0 8px;border-right:1px solid var(--line);min-width:120px}
-tbody th .m{display:inline-block;vertical-align:middle;width:36px;height:6px;background:#0d0f12;border-radius:3px;margin-left:8px;overflow:hidden}
+thead th{position:sticky;top:0;background:var(--surface);z-index:2;font-weight:500;font-size:11px;color:var(--text-2);height:26px;min-width:26px;text-align:center;border-bottom:1px solid var(--border)}
+thead tr.grp th{height:22px;color:var(--text);border-left:1px solid var(--border);font-size:11px;white-space:nowrap;overflow:hidden;max-width:0}
+tbody th{position:sticky;left:0;background:var(--surface);z-index:1;text-align:left;font-weight:500;font-size:12px;white-space:nowrap;padding:0 10px 0 8px;border-right:1px solid var(--border);min-width:120px}
+tbody th .m{display:inline-block;vertical-align:middle;width:36px;height:6px;background:var(--meter-track);border-radius:3px;margin-left:8px;overflow:hidden}
 tbody th .m i{display:block;height:100%;width:0;background:var(--ok)}
 thead th:first-child{left:0;z-index:3;text-align:left;padding-left:8px}
-td{width:26px;height:26px;border-right:1px solid #23272e;border-bottom:1px solid #23272e;cursor:pointer;text-align:center;font-size:9px;color:#04121f}
-td.g8{border-right-color:var(--line)}
-td:hover{background:#2a303a}
-td.on{background:var(--on)}td.on.att{background:#2b6ea8;color:#dbeeff}td.on.boost{background:var(--warn)}
-td.sel{outline:2px solid var(--sel);outline-offset:-2px}
-.slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:14px}
-.slot{border:1px solid var(--line);border-radius:8px;padding:10px;display:grid;gap:6px}
-.slot select{width:100%}.slot small{color:var(--dim)}
-.pill{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim)}
-.pill.ok{color:var(--ok);border-color:#1f5e44}.pill.bad{color:var(--bad);border-color:#6b2c2c}
-.hint{color:var(--dim);font-size:13px;padding:14px;text-align:center}
-#gain{display:flex;gap:10px;align-items:center;min-height:34px}
+thead tr.grp + tr th{top:22px} /* a linha dos numeros fica logo abaixo da linha dos fluxos */
+td{width:26px;height:26px;border-right:1px solid var(--grid-line);border-bottom:1px solid var(--grid-line);cursor:pointer;text-align:center;font:500 9px/1 var(--font-mono);color:var(--on-route)}
+td.g8{border-right-color:var(--border-strong)}
+td:hover{background:var(--hover)}
+td.on{background:var(--route)}
+td.on.att{background:var(--route-att);color:var(--on-route-att)}
+td.on.boost{background:var(--route-boost);color:var(--on-route-boost)}
+td.sel{outline:2px solid var(--select);outline-offset:-2px}
+
+/* fluxos recebidos */
+.slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:var(--s3);margin-bottom:var(--s4)}
+.slot{border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s3);display:grid;gap:var(--s2)}
+.slot .hd{display:flex;align-items:center;gap:var(--s2)}
+.slot select{width:100%}.slot small{color:var(--text-2)}
+.hint{color:var(--text-2);font-size:13px;padding:var(--s4);text-align:center}
+#gain{display:flex;gap:var(--s3);align-items:center;min-height:34px}
 #gain input{flex:0 0 220px;padding:0}
-details summary{cursor:pointer;font-weight:600}
-code{background:#0d0f12;padding:1px 5px;border-radius:4px}
+#gain b{font-family:var(--font-mono);font-weight:500;min-width:52px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}button:active{transform:none}}
 </style>
 </head>
 <body>
 <header>
-  <h1>AoIP Bridge</h1><span class="pill" id="pill">iniciando…</span>
+  <svg class="mark" viewBox="0 0 24 24" role="img" aria-label="AOIP-Bridge"><path d="M4 18H8C12.5 18 11.5 6 16 6H20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="4" cy="18" r="2.6" fill="currentColor"/><circle cx="20" cy="6" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="3" fill="#26A88B" stroke="var(--bg)" stroke-width="1.2"/></svg>
+  <h1>AOIP-Bridge</h1><span class="badge" id="pill" role="status">iniciando…</span>
   <span class="sp"></span>
-  <button class="ghost" id="quit" title="Fecha o programa e para o áudio">Encerrar</button>
+  <label class="theme">Tema<select id="theme" aria-label="Tema da interface"><option value="system">Sistema</option><option value="dark">Escuro</option><option value="light">Claro</option></select></label>
+  <button class="subtle" id="quit" title="Fecha o programa e para o áudio">Encerrar</button>
 </header>
 <main>
   <section>
     <h2>Situação</h2>
     <p class="sub">Quando os quatro itens estiverem verdes, o áudio está passando.</p>
     <div class="steps" id="steps"></div>
-    <div id="alert"></div>
+    <div id="alert" role="alert"></div>
   </section>
 
   <section id="setup">
@@ -125,10 +209,21 @@ async function post(path, params) {
   if (!r.ok) showAlert(j.error || 'O comando falhou.');
   return r.ok;
 }
-function showAlert(msg) { $('alert').innerHTML = msg ? `<div class="alert">${esc(msg)}</div>` : ''; }
+// Icones (um traco so, 16 px). O estado nunca depende so da cor: sempre icone + texto.
+const ICON = {
+  ok: '<circle cx="8" cy="8" r="6.25"/><path d="M5.4 8.2l1.8 1.8 3.5-3.7"/>',
+  bad: '<circle cx="8" cy="8" r="6.25"/><path d="M6 6l4 4M10 6l-4 4"/>',
+  warn: '<path d="M8 2.3l6.1 10.8H1.9z"/><path d="M8 6.5v3M8 11.5v.1"/>',
+  info: '<path d="M13.2 6.5A5.5 5.5 0 0 0 3.6 5.2M2.8 9.5a5.5 5.5 0 0 0 9.6 1.3"/><path d="M3.4 2.6v2.8h2.8M12.6 13.4v-2.8H9.8"/>',
+  '': '<circle cx="8" cy="8" r="6.25"/><path d="M5.4 8h5.2"/>',
+};
+const icon = cls => `<svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[cls] || ICON['']}</svg>`;
+const badge = (cls, text) => `<span class="badge ${cls}">${icon(cls)}${esc(text)}</span>`;
+function setPill(cls, text) { $('pill').className = 'badge ' + cls; $('pill').innerHTML = icon(cls) + esc(text); }
+function showAlert(msg, kind) { $('alert').innerHTML = msg ? `<div class="alert ${kind || ''}">${icon(kind || 'bad')}<span>${esc(msg)}</span></div>` : ''; }
 
 function step(cls, title, text) {
-  return `<div class="step ${cls}"><span class="dot"></span><b>${esc(title)}</b><small>${text}</small></div>`;
+  return `<div class="step ${cls}">${icon(cls)}<b>${esc(title)}</b><small>${text}</small></div>`;
 }
 function renderSteps() {
   const h = [];
@@ -143,10 +238,9 @@ function renderSteps() {
   else h.push(step('', 'Enviando', 'Começa quando o relógio sincronizar.'));
   $('steps').innerHTML = h.join('');
   const ok = S.running && S.ptp;
-  $('pill').className = 'pill ' + (ok ? 'ok' : 'bad');
-  $('pill').textContent = ok ? 'funcionando' : (S.running ? 'sem relógio' : 'parado');
+  setPill(ok ? 'ok' : (S.running ? 'warn' : ''), ok ? 'funcionando' : (S.running ? 'sem relógio' : 'parado'));
   if (S.error) showAlert(S.error);
-  else if (S.under > 0 && S.running) showAlert(`O áudio falhou ${S.under} vez(es). Se ouvir estalos, aumente a folga em Configuração.`);
+  else if (S.under > 0 && S.running) showAlert(`O áudio falhou ${S.under} vez(es). Se ouvir estalos, aumente a folga em Configuração.`, 'warn');
   else showAlert('');
 }
 
@@ -207,7 +301,7 @@ function renderGrids() {
     const v = (k === 'tx' ? S.lvIn : S.lvRx)[i] || 0;
     const db = v > 0 ? 20 * Math.log10(v) : -99;
     el.style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%';
-    el.style.background = db > -1 ? 'var(--bad)' : db > -12 ? 'var(--warn)' : 'var(--ok)';
+    el.style.background = db > -1 ? 'var(--err)' : db > -12 ? 'var(--warn)' : 'var(--ok)';
   }
   renderGain();
 }
@@ -234,8 +328,8 @@ function renderSlots() {
     const cur = S.slots[s];
     const names = usable.map(f => f.name);
     if (cur && !names.includes(cur)) names.unshift(cur);
-    const state = !cur ? '<span class="pill">vazio</span>' : S.active[s] ? '<span class="pill ok">recebendo</span>' : '<span class="pill bad">aguardando o fluxo aparecer</span>';
-    h += `<div class="slot"><div><b>Fluxo ${SLOT[s]}</b> ${state}</div><select data-slot="${s}"><option value="">nenhum</option>` +
+    const state = !cur ? badge('', 'vazio') : S.active[s] ? badge('ok', 'recebendo') : badge('warn', 'aguardando o fluxo aparecer');
+    h += `<div class="slot"><div class="hd"><b>Fluxo ${SLOT[s]}</b> ${state}</div><select data-slot="${s}" aria-label="Fluxo ${SLOT[s]}"><option value="">nenhum</option>` +
       names.map(n => { const f = usable.find(x => x.name === n);
         return `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}${f ? ` (${f.ch} canais)` : ''}</option>`; }).join('') + '</select></div>';
   }
@@ -267,7 +361,7 @@ $('setup').addEventListener('input', () => formTouched = true);
 $('fSave').onclick = async () => {
   if (!$('fDev').value) return showAlert('Escolha a placa de áudio.');
   const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value});
-  if (ok) { formTouched = false; $('setupBox').open = false; $('pill').textContent = 'reiniciando…'; shape = {}; }
+  if (ok) { formTouched = false; $('setupBox').open = false; setPill('info', 'reiniciando…'); shape = {}; }
 };
 $('quit').onclick = async () => { if (confirm('Encerrar o programa? O áudio para de passar.')) { await post('/api/quit', {}); document.body.innerHTML = '<div class="hint" style="padding:80px">Programa encerrado. Pode fechar esta aba.</div>'; } };
 
@@ -276,9 +370,12 @@ async function tick() {
     S = await (await fetch('/api/state')).json(); offline = 0;
     renderSteps(); renderForm(); renderSlots(); renderGrids();
   } catch (e) {
-    if (++offline > 3) { $('pill').className = 'pill bad'; $('pill').textContent = 'programa fechado'; }
+    if (++offline > 3) setPill('bad', 'programa fechado');
   }
 }
+$('theme').value = themePref();
+$('theme').onchange = e => { try { localStorage.setItem('aoip-theme', e.target.value); } catch (err) {} applyTheme(e.target.value); };
+setPill('info', 'iniciando…');
 tick(); setInterval(tick, 500);
 </script>
 </body>
