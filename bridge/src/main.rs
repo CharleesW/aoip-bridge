@@ -50,12 +50,35 @@ fn list_devices(host: &cpal::Host) -> Vec<(String, usize, usize)> {
 
 fn find_device(host: &cpal::Host, name: &str, input: bool) -> Option<cpal::Device> {
     let usable = |d: &cpal::Device| if input { d.default_input_config().is_ok() } else { d.default_output_config().is_ok() };
-    let all: Vec<cpal::Device> = host.devices().ok()?.filter(usable).collect();
-    let lower = name.to_lowercase();
-    let exact = all.iter().position(|d| d.name().map(|n| n == name).unwrap_or(false));
-    let partial = || all.iter().position(|d| d.name().map(|n| n.to_lowercase().contains(&lower)).unwrap_or(false));
-    let idx = exact.or_else(partial)?;
-    all.into_iter().nth(idx)
+    find_by_name(|| host.devices().ok(), |d| d.name().ok(), usable, name)
+}
+
+/// Procura um aparelho pelo nome: primeiro o nome exato, depois um nome que contenha o pedido.
+///
+/// No ASIO so um driver fica carregado por vez, e cada item da lista carrega o seu driver.
+/// Por isso os itens sao testados um de cada vez e o que nao serve e solto antes de abrir o
+/// proximo. (Guardar todos numa lista deixava preso o primeiro driver do computador, por
+/// exemplo o "AoIP Bridge ASIO", e a placa de verdade nao abria: "placa nao encontrada".)
+fn find_by_name<D, I: Iterator<Item = D>>(
+    open: impl Fn() -> Option<I>,
+    name_of: impl Fn(&D) -> Option<String>,
+    usable: impl Fn(&D) -> bool,
+    want: &str,
+) -> Option<D> {
+    let lower = want.to_lowercase();
+    let pick = |hit: &dyn Fn(&str) -> bool| {
+        for d in open()? {
+            let Some(n) = name_of(&d) else { continue };
+            if OWN_DRIVERS.contains(&n.as_str()) {
+                continue;
+            }
+            if hit(&n) && usable(&d) {
+                return Some(d);
+            }
+        }
+        None
+    };
+    pick(&|n| n == want).or_else(|| pick(&|n| n.to_lowercase().contains(&lower)))
 }
 
 /// Escolhe como abrir a placa. `want` = taxa pedida; a primeira que a placa aceitar vale.
@@ -254,3 +277,70 @@ fn main() {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::find_by_name;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// Imita o ASIO: so um driver carregado por vez; com outro carregado, o item e pulado
+    /// (como o cpal faz quando o asio-sys recusa carregar um segundo driver).
+    struct Fake {
+        name: String,
+        loaded: Rc<RefCell<Option<String>>>,
+    }
+    impl Drop for Fake {
+        fn drop(&mut self) {
+            *self.loaded.borrow_mut() = None;
+        }
+    }
+
+    /// Lista preguicosa, como o iterador do cpal: carrega cada driver ao avancar.
+    fn drivers(names: &'static [&'static str]) -> impl Fn() -> Option<Box<dyn Iterator<Item = Fake>>> {
+        let loaded = Rc::new(RefCell::new(None::<String>));
+        move || {
+            let l = loaded.clone();
+            Some(Box::new(names.iter().filter_map(move |n| {
+                let mut cur = l.borrow_mut();
+                if cur.as_deref().is_some_and(|x| x != *n) {
+                    return None;
+                }
+                *cur = Some(n.to_string());
+                Some(Fake { name: n.to_string(), loaded: l.clone() })
+            })))
+        }
+    }
+
+    fn name(d: &Fake) -> Option<String> {
+        Some(d.name.clone())
+    }
+
+    const PC_DA_IGREJA: &[&str] = &["AoIP Bridge ASIO", "ASIO4ALL v2", "Soundcraft USB Ui24r Asio"];
+
+    #[test]
+    fn finds_card_listed_after_other_asio_drivers() {
+        let open = drivers(PC_DA_IGREJA);
+        let input = find_by_name(&open, name, |_| true, "Soundcraft USB Ui24r Asio");
+        assert_eq!(input.as_ref().map(|d| d.name.as_str()), Some("Soundcraft USB Ui24r Asio"));
+        // Com a placa aberta para a entrada, abrir de novo para a saida devolve a mesma placa.
+        let output = find_by_name(&open, name, |_| true, "Soundcraft USB Ui24r Asio");
+        assert_eq!(output.as_ref().map(|d| d.name.as_str()), Some("Soundcraft USB Ui24r Asio"));
+    }
+
+    #[test]
+    fn old_way_of_keeping_every_driver_fails() {
+        // O jeito antigo (guardar a lista inteira) so via o primeiro driver: e o erro da igreja.
+        let all: Vec<Fake> = drivers(PC_DA_IGREJA)().unwrap().collect();
+        assert_eq!(all.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["AoIP Bridge ASIO"]);
+    }
+
+    #[test]
+    fn partial_name_own_driver_and_unusable() {
+        let open = drivers(PC_DA_IGREJA);
+        assert_eq!(find_by_name(&open, name, |_| true, "ui24r").map(|d| d.name.clone()).as_deref(), Some("Soundcraft USB Ui24r Asio"));
+        assert!(find_by_name(&open, name, |_| true, "AoIP Bridge ASIO").is_none(), "o driver virtual nao serve de placa");
+        assert!(find_by_name(&open, name, |_| false, "Soundcraft USB Ui24r Asio").is_none(), "placa sem entrada nao serve");
+        assert!(find_by_name(&open, name, |_| true, "Behringer").is_none());
+    }
+}

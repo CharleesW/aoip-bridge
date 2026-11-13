@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "aoip-asio"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aoip-core",
  "aoip-engine",
@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "aoip-bridge"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aoip-core",
  "aoip-engine",
@@ -52,11 +52,11 @@ dependencies = [
 
 [[package]]
 name = "aoip-core"
-version = "0.4.1"
+version = "0.4.2"
 
 [[package]]
 name = "aoip-engine"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aoip-core",
  "socket2",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "aoip-virtual"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aoip-core",
  "aoip-engine",

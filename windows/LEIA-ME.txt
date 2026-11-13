@@ -1,4 +1,4 @@
-AoIP Bridge para Windows (versao de teste 0.4.1)
+AoIP Bridge para Windows (versao de teste 0.4.2)
 ===============================================
 
 ATENCAO: versao de teste. O driver ASIO desta versao foi testado so em um simulador no
