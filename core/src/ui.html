@@ -126,6 +126,17 @@ td.on{background:var(--route)}
 td.on.att{background:var(--route-att);color:var(--on-route-att)}
 td.on.boost{background:var(--route-boost);color:var(--on-route-boost)}
 td.sel{outline:2px solid var(--select);outline-offset:-2px}
+td:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+/* origem e destino do ponto sob o mouse ou o teclado */
+thead th.x{color:var(--text);background:var(--hover)}
+tbody th.x{background:var(--hover)}
+tbody tr:nth-child(8n+1):not(:first-child) th,tbody tr:nth-child(8n+1):not(:first-child) td{border-top:1px solid var(--border-strong)}
+.keys{color:var(--text-3);font-size:12px;margin:var(--s2) 0 0}
+.keys kbd{font:500 11px/1 var(--font-mono);border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:var(--r-sm);padding:2px 5px;color:var(--text-2);background:var(--field)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.form .msg{font-size:12px;min-height:16px;color:var(--text-3)}
+.form .msg.err{color:var(--err)}
+.form [aria-invalid="true"]{border-color:var(--err)}
 
 /* fluxos recebidos */
 .slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:var(--s3);margin-bottom:var(--s4)}
@@ -160,9 +171,9 @@ td.sel{outline:2px solid var(--select);outline-offset:-2px}
       <summary>Configuração</summary>
       <p class="sub" style="margin-top:8px">Mudanças aqui reiniciam o áudio por alguns segundos.</p>
       <div class="form">
-        <label>Placa de áudio<select id="fDev"></select></label>
-        <label>IP deste computador na rede de áudio<input id="fIf" placeholder="ex.: 192.168.1.50"></label>
-        <label>Nome que aparece no Dante Controller<input id="fName" maxlength="24"></label>
+        <label>Placa de áudio<select id="fDev" aria-describedby="fDevMsg"></select><span class="msg" id="fDevMsg"></span></label>
+        <label>IP deste computador na rede de áudio<input id="fIf" placeholder="ex.: 192.168.1.50" inputmode="decimal" autocomplete="off" aria-describedby="fIfMsg"><span class="msg" id="fIfMsg">Vazio: o programa escolhe sozinho.</span></label>
+        <label>Nome que aparece no Dante Controller<input id="fName" maxlength="24" autocomplete="off" aria-describedby="fNameMsg"><span class="msg" id="fNameMsg">Até 24 letras. Vazio: "Bridge".</span></label>
         <label>Canais enviados para a rede<select id="fTx"></select></label>
         <label>Taxa de amostragem da placa<select id="fRate">
           <option value="0">Automática: 48000 Hz se a placa aceitar</option>
@@ -184,7 +195,8 @@ td.sel{outline:2px solid var(--select);outline-offset:-2px}
     <h2>Enviar para a rede</h2>
     <p class="sub">Linhas: entradas da placa. Colunas: canais que aparecem no Dante Controller, em fluxos de 8. Clique para ligar ou desligar.</p>
     <div class="bar"><button data-preset="tx:identity">1 para 1</button><button data-preset="tx:clear">Limpar</button><span class="sp"></span><div id="gain"></div></div>
-    <div class="gridwrap"><table id="txGrid"></table></div>
+    <div class="gridwrap"><table id="txGrid" role="grid" aria-label="Matriz de envio: entradas da placa para canais da rede"></table></div>
+    <p class="keys">Teclado: <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> anda, <kbd>Enter</kbd> ou <kbd>Espaço</kbd> liga e desliga, <kbd>Del</kbd> desliga, <kbd>PgUp</kbd><kbd>PgDn</kbd> pula 8 linhas.</p>
   </section>
 
   <section id="rxSec">
@@ -192,10 +204,11 @@ td.sel{outline:2px solid var(--select);outline-offset:-2px}
     <p class="sub">Escolha até 4 fluxos AES67 e ligue os canais deles nas saídas da placa.</p>
     <div class="slots" id="slots"></div>
     <div class="bar"><button data-preset="rx:identity">1 para 1</button><button data-preset="rx:clear">Limpar</button></div>
-    <div class="gridwrap"><table id="rxGrid"></table></div>
+    <div class="gridwrap"><table id="rxGrid" role="grid" aria-label="Matriz de recepção: canais dos fluxos recebidos para saídas da placa"></table></div>
     <div class="hint" id="rxHint"></div>
   </section>
 </main>
+<div id="live" class="sr" aria-live="polite"></div>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -257,28 +270,40 @@ function renderForm() {
   $('fLat').value = [2, 4, 8, 16].includes(S.cfg.latency) ? S.cfg.latency : 4;
   $('fRate').value = [44100, 48000, 88200, 96000].includes(S.cfg.rate) ? S.cfg.rate : 0;
   if (!S.running) $('setupBox').open = true;
+  validate(); // mensagens sempre de acordo com o que esta nos campos
 }
 
 function buildGrid(id, kind, rows, cols, rowName, colName, groups) {
   let h = '<thead>';
   if (groups) h += '<tr class="grp"><th></th>' + groups.map(g => `<th colspan="${g.n}" title="${esc(g.t)}">${esc(g.t)}</th>`).join('') + '</tr>';
-  h += '<tr><th></th>' + cols.map(c => `<th title="${esc(colName(c))}">${c + 1}</th>`).join('') + '</tr></thead><tbody>';
+  h += '<tr><th scope="col"><span class="sr">Origem / destino</span></th>' + cols.map(c => `<th scope="col" data-col="${c}" title="${esc(colName(c))}" aria-label="${esc(colName(c))}">${c + 1}</th>`).join('') + '</tr></thead><tbody>';
   for (const r of rows) {
-    h += `<tr><th>${esc(rowName(r))}<span class="m"><i data-lv="${kind}:${r}"></i></span></th>`;
-    for (const c of cols) h += `<td data-k="${kind}" data-i="${r}" data-o="${c}" class="${(c + 1) % 8 === 0 ? 'g8' : ''}" title="${esc(rowName(r))} → ${esc(colName(c))}"></td>`;
+    h += `<tr><th scope="row">${esc(rowName(r))}<span class="m" aria-hidden="true"><i data-lv="${kind}:${r}"></i></span></th>`;
+    for (const c of cols) h += `<td role="gridcell" tabindex="-1" data-k="${kind}" data-i="${r}" data-o="${c}" data-name="${esc(rowName(r))} para ${esc(colName(c))}" class="${(c + 1) % 8 === 0 ? 'g8' : ''}" title="${esc(rowName(r))} → ${esc(colName(c))}"></td>`;
     h += '</tr>';
   }
   $(id).innerHTML = h + '</tbody>';
+  // Um ponto so recebe o Tab (os outros pelas setas). Volta para onde estava, se ainda existir.
+  const f = cellFocus[id], tds = $(id).querySelectorAll('td');
+  const back = f && $(id).querySelector(`td[data-i="${f.i}"][data-o="${f.o}"]`);
+  if (back || tds[0]) (back || tds[0]).tabIndex = 0;
 }
+const cellFocus = {};
 function paint(id, kind, points) {
   const on = new Map(points.map(p => [p[0] + ':' + p[1], p[2]]));
   for (const td of $(id).querySelectorAll('td')) {
     const db = on.get(td.dataset.i + ':' + td.dataset.o);
     const isSel = sel && sel.k === kind && sel.i == td.dataset.i && sel.o == td.dataset.o;
+    const st = (db === undefined ? '-' : Math.round(db)) + (isSel ? 's' : '');
+    if (td.dataset.st === st) continue;
+    td.dataset.st = st;
     td.className = (td.classList.contains('g8') ? 'g8 ' : '') + (db !== undefined ? 'on ' + (db < 0 ? 'att' : db > 0 ? 'boost' : '') : '') + (isSel ? ' sel' : '');
     td.textContent = db !== undefined && db !== 0 ? Math.round(db) : '';
+    td.setAttribute('aria-selected', db !== undefined ? 'true' : 'false');
+    td.setAttribute('aria-label', td.dataset.name + ': ' + cellState(db));
   }
 }
+const cellState = db => db === undefined ? 'desligado' : 'ligado, ' + fmt(Math.round(db));
 function range(n) { return Array.from({length: n}, (_, i) => i); }
 
 function renderGrids() {
@@ -341,26 +366,99 @@ function renderSlots() {
 
 document.addEventListener('click', async e => {
   const td = e.target.closest('td[data-k]');
-  if (td) {
-    const {k, i, o} = td.dataset;
-    const on = td.classList.contains('on');
-    const same = sel && sel.k === k && sel.i == i && sel.o == o;
-    // 1o clique num ponto ligado seleciona; clicar de novo desliga.
-    if (on && !same) { sel = {k, i, o}; }
-    else { await post('/api/point', {m: k, i, o, db: on ? 'off' : 0}); sel = on ? null : {k, i, o}; }
-    return tick();
-  }
+  if (td) { moveFocus(td, false); return toggleCell(td, false); }
   const pre = e.target.dataset.preset;
   if (pre) { const [m, kind] = pre.split(':'); if (kind !== 'clear' || confirm('Desligar todos os pontos desta matriz?')) { await post('/api/preset', {m, kind}); tick(); } }
 });
+// Liga/desliga um ponto. Com o mouse, o 1o clique num ponto ligado so seleciona (para ajustar o
+// ganho) e o 2o desliga; pelo teclado, Enter/Espaco alterna direto e Del desliga.
+async function toggleCell(td, direct, forceOff) {
+  const {k, i, o} = td.dataset;
+  const on = td.classList.contains('on');
+  const same = sel && sel.k === k && sel.i == i && sel.o == o;
+  if (forceOff && !on) return;
+  if (on && !same && !direct && !forceOff) { sel = {k, i, o}; return tick(); }
+  const ok = await post('/api/point', {m: k, i, o, db: on ? 'off' : 0});
+  if (ok) {
+    sel = on ? null : {k, i, o};
+    $('live').textContent = td.dataset.name + (on ? ': desligado' : ': ligado, 0 dB');
+  } else {
+    $('live').textContent = td.dataset.name + ': não foi possível mudar este ponto';
+  }
+  tick();
+}
+function cross(td) {
+  for (const el of document.querySelectorAll('th.x')) el.classList.remove('x');
+  if (!td) return;
+  const table = td.closest('table');
+  td.parentElement.firstElementChild.classList.add('x');
+  const col = table.querySelector(`thead th[data-col="${td.dataset.o}"]`);
+  if (col) col.classList.add('x');
+}
+function moveFocus(td, focus) {
+  const table = td.closest('table');
+  const old = table.querySelector('td[tabindex="0"]');
+  if (old && old !== td) old.tabIndex = -1;
+  td.tabIndex = 0;
+  cellFocus[table.id] = {i: td.dataset.i, o: td.dataset.o};
+  if (focus) td.focus();
+  cross(td);
+}
+document.addEventListener('keydown', e => {
+  const td = e.target.closest && e.target.closest('td[data-k]');
+  if (!td) return;
+  const row = td.parentElement, rows = [...row.parentElement.children];
+  const cells = [...row.querySelectorAll('td')], x = cells.indexOf(td), y = rows.indexOf(row);
+  const at = (yy, xx) => { const r = rows[Math.max(0, Math.min(rows.length - 1, yy))]; const c = r.querySelectorAll('td'); return c[Math.max(0, Math.min(c.length - 1, xx))]; };
+  let next = null;
+  switch (e.key) {
+    case 'ArrowRight': next = at(y, x + 1); break;
+    case 'ArrowLeft': next = at(y, x - 1); break;
+    case 'ArrowDown': next = at(y + 1, x); break;
+    case 'ArrowUp': next = at(y - 1, x); break;
+    case 'PageDown': next = at(y + 8, x); break;
+    case 'PageUp': next = at(y - 8, x); break;
+    case 'Home': next = e.ctrlKey ? at(0, 0) : at(y, 0); break;
+    case 'End': next = e.ctrlKey ? at(rows.length - 1, cells.length - 1) : at(y, cells.length - 1); break;
+    case 'Enter': case ' ': e.preventDefault(); toggleCell(td, true); return;
+    case 'Delete': case 'Backspace': e.preventDefault(); toggleCell(td, true, true); return;
+    default: return;
+  }
+  e.preventDefault();
+  if (next) moveFocus(next, true);
+});
+document.addEventListener('mouseover', e => { const td = e.target.closest && e.target.closest('td[data-k]'); if (td) cross(td); });
+document.addEventListener('focusin', e => { const td = e.target.closest && e.target.closest('td[data-k]'); if (td) moveFocus(td, false); });
+document.addEventListener('mouseleave', () => { const f = document.activeElement; cross(f && f.matches && f.matches('td[data-k]') ? f : null); }, true);
+
 document.addEventListener('change', async e => {
   if (e.target.dataset.slot !== undefined) { await post('/api/rx', {slot: e.target.dataset.slot, name: e.target.value}); e.target.blur(); tick(); }
   if (e.target.closest('.form')) formTouched = true;
 });
 $('setup').addEventListener('input', () => formTouched = true);
+// Mesmas regras que o programa aplica ao salvar (ui.rs): IP vazio ou IPv4 valido; placa obrigatoria.
+const IP4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+function fieldMsg(input, msgId, error, normal) {
+  input.setAttribute('aria-invalid', error ? 'true' : 'false');
+  $(msgId).className = 'msg' + (error ? ' err' : '');
+  $(msgId).textContent = error || normal;
+  return !error;
+}
+function validate() {
+  const ip = $('fIf').value.trim();
+  const a = fieldMsg($('fIf'), 'fIfMsg', ip && !IP4.test(ip) ? 'IP inválido. Use quatro números de 0 a 255, como 192.168.1.50.' : '', 'Vazio: o programa escolhe sozinho.');
+  const b = fieldMsg($('fDev'), 'fDevMsg', $('fDev').value ? '' : 'Escolha a placa de áudio.', '');
+  return a && b;
+}
+$('fIf').addEventListener('blur', validate);
+$('fIf').addEventListener('input', () => { if ($('fIf').getAttribute('aria-invalid') === 'true') validate(); });
+$('fDev').addEventListener('change', validate);
 $('fSave').onclick = async () => {
-  if (!$('fDev').value) return showAlert('Escolha a placa de áudio.');
+  if (!validate()) return (($('fIf').getAttribute('aria-invalid') === 'true') ? $('fIf') : $('fDev')).focus();
+  const btn = $('fSave');
+  btn.disabled = true; btn.textContent = 'Salvando…';
   const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value});
+  btn.disabled = false; btn.textContent = 'Salvar e iniciar';
   if (ok) { formTouched = false; $('setupBox').open = false; setPill('info', 'reiniciando…'); shape = {}; }
 };
 $('quit').onclick = async () => { if (confirm('Encerrar o programa? O áudio para de passar.')) { await post('/api/quit', {}); document.body.innerHTML = '<div class="hint" style="padding:80px">Programa encerrado. Pode fechar esta aba.</div>'; } };
