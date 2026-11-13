@@ -10,7 +10,9 @@ Só aparece na interface o que o programa realmente informa ou executa.
 | Escolha de até 4 fluxos para receber | Implementada | Sim |
 | Configuração (placa, IP, nome, canais, taxa, folga) | Implementada | Sim |
 | Contagem de falhas de áudio (total) | Implementada | Sim (aviso) |
-| Temas escuro e claro | Implementada nesta etapa | Sim |
+| Temas escuro e claro | Implementada (Fase B) | Sim |
+| Matriz pelo teclado, com nomes acessíveis | Implementada (Fase C) | Sim |
+| Validação da configuração junto ao campo | Implementada (Fase C) | Sim |
 | Relógio: "sincronizando" e "perdeu a trava" como estados separados | O programa só informa travado ou não | Não |
 | Desempenho (latência medida, pacotes perdidos, por fluxo) | Não existe | Não |
 | Diagnóstico e registros | Não existe | Não |

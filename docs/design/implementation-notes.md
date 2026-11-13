@@ -36,7 +36,18 @@ Decisões tomadas sem resposta explícita (fáceis de reverter):
   áudio real (usam o mesmo arquivo, mas não foram reabertos); navegação só por teclado;
   capturas de tela ainda não guardadas no repositório.
 
+## Fase C — telas (esta etapa)
+
+Só `core/src/ui.html`. Matriz: teclado, nomes acessíveis, destaque de origem e destino,
+divisórias a cada 8 linhas, anúncio do resultado, pintura incremental. Configuração:
+validação junto ao campo (mesmas regras do `ui.rs`) e estado "Salvando…". Correção:
+mensagem de erro do IP ficava presa quando o programa reescrevia o campo.
+
+Verificação: 28 testes do núcleo; no painel de demonstração, pelo teclado, Tab entra na
+matriz num ponto só, setas movem e destacam origem/destino, Enter ligou e Del desligou um
+ponto (o estado voltou do programa e foi anunciado), IP inválido mostrou erro e o erro
+sumiu ao corrigir; temas escuro e claro.
+
 ## Próximas etapas
 
-Fase C (telas): matriz com teclado e nomes acessíveis, Situação e Configuração refinadas.
 Fase D: estados vazios/erro, diálogos próprios. Android e ícones dos programas.

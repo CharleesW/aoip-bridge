@@ -96,9 +96,30 @@ cartão de fluxo (`.slot`), controle de ganho.
 Nenhuma animação contínua. Só o retorno de clique dos botões, desligado quando o sistema
 pede "reduzir movimento".
 
+## Matriz de roteamento
+
+- Linhas = origens, colunas = destinos; cabeçalhos fixos ao rolar; divisórias mais fortes
+  a cada 8 canais nos dois sentidos.
+- Ponto ligado = cor de rota + número do ganho quando diferente de 0 dB; ponto selecionado
+  (para ajuste de ganho) = contorno.
+- Ao passar o mouse ou focar um ponto, a linha de origem e a coluna de destino ficam
+  destacadas no cabeçalho.
+- Teclado: um único ponto recebe o Tab (os outros pelas setas). Setas andam, `PgUp`/`PgDn`
+  pulam 8 linhas, `Home`/`End` vão ao começo/fim da linha (com `Ctrl`, da matriz),
+  `Enter`/`Espaço` liga e desliga, `Del` desliga.
+- Cada ponto tem nome acessível ("Entrada 3 para Ui24R : 1, canal 2: ligado, 0 dB") e o
+  resultado de cada mudança é anunciado numa região viva (inclusive a recusa).
+- Toda mudança chama o comando real (`/api/point`); a matriz só muda de cor quando o estado
+  volta do programa. A pintura só altera as células que mudaram.
+
+## Formulário
+
+Mensagem embaixo de cada campo que tem regra (`.msg`; em erro, `.msg.err` e
+`aria-invalid`). As regras repetem as do programa (`ui.rs`): IP vazio ou IPv4 válido, placa
+obrigatória. O botão Salvar mostra "Salvando…" e fica desativado enquanto espera.
+
 ## Ainda não feito (propostas)
 
-- Matriz utilizável pelo teclado e com nomes acessíveis por célula.
 - Medidor com marca não dependente de cor para saturação.
 - Diálogos próprios no lugar de `confirm()` do navegador.
 - Mesma identidade no aplicativo Android e nos ícones dos programas.
