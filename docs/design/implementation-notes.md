@@ -65,7 +65,43 @@ e claro. 28 testes do núcleo passando; programa e auxiliar do Mac compilam.
 Não verificado: estado "reiniciando" com o programa real (a demonstração não reinicia),
 painéis dentro do driver ASIO e do auxiliar do Mac, leitor de tela de verdade.
 
+## Fase E — verificação e entrega (esta etapa)
+
+- Pacotes de teste **0.4** gerados a partir do ramo: `dist/AoIP-Bridge-Mac-0.4-teste.zip`
+  e `dist/AoIP-Bridge-Windows-0.4-teste.zip`.
+- **Mac, instalação real:** o aplicativo instalado em `~/Applications` foi trocado pelo do
+  pacote 0.4 (o anterior ficou como `AoIP Bridge.app.old`) e o auxiliar foi religado pelo
+  launchd. O driver da placa virtual não mudou nesta identidade visual, então não foi
+  preciso reinstalar com senha. Conferido no painel real (127.0.0.1:8788): estado parado,
+  estado funcionando com um cliente CoreAudio de teste, temas escuro e claro.
+- **Programa AoIP Bridge real** (aberto numa porta de teste, 8790, com a configuração do
+  usuário): mostrou corretamente o erro de placa não encontrada no visual novo.
+- Capturas reais em `docs/design/screenshots/` (nenhuma é maquete):
+  `mac-placa-virtual-parada-escuro.jpg`, `mac-placa-virtual-funcionando-escuro.jpg`,
+  `mac-placa-virtual-funcionando-claro.jpg`, `programa-erro-de-placa-claro.jpg`.
+- Correções na compilação, sem relação com o visual mas necessárias para gerar o pacote:
+  - o componente ASIO (`vendor/asio-sys/build.rs`) só declarava a biblioteca C++ na
+    primeira compilação; a partir da segunda o `aoip-bridge.exe` não ligava. Agora declara
+    sempre;
+  - `build-windows-from-mac.sh` apagava a pasta `dist/` inteira (levando junto os pacotes
+    do Mac e do Android); agora só refaz a parte do Windows.
+- Motor de áudio, drivers e comandos do painel: sem mudanças (conferir com
+  `git diff main -- engine asio-driver/src mac-driver/src mac-driver/driver.c core/src/ui.rs
+  core/src/state.rs`, que sai vazio; fora disso só o número de versão nos scripts de pacote).
+
+### Observações para depois
+
+- A placa virtual do Mac parada (estado normal quando nenhum programa a usa) aparece como
+  **erro** em vermelho, porque o auxiliar escreve o aviso no campo de erro. Ficaria melhor
+  como informação; exige mudar `mac-driver/src/main.rs` (fora do escopo visual).
+- O Mac está gerando o relógio quando o notebook não está na rede; o texto do indicador
+  ("este computador esta gerando o relogio") vem do motor, sem acentos.
+
+### Não verificado
+
+- O painel novo dentro do driver ASIO no Windows (precisa instalar o pacote 0.4 lá).
+- Leitor de tela de verdade e uso prolongado.
+
 ## Próximas etapas
 
-Fase E (verificação e entrega): capturas reais nos dois temas, gerar pacotes de teste a
-partir do ramo e conferir nos programas instalados. Depois: estados vazios/erro, diálogos próprios. Android e ícones dos programas.
+Depois: estados vazios/erro, diálogos próprios. Android e ícones dos programas.

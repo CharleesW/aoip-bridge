@@ -13,6 +13,7 @@ Só aparece na interface o que o programa realmente informa ou executa.
 | Temas escuro e claro | Implementada (Fase B) | Sim |
 | Matriz pelo teclado, com nomes acessíveis | Implementada (Fase C) | Sim |
 | Validação da configuração junto ao campo | Implementada (Fase C) | Sim |
+| Diálogos próprios e estados de carregando, reiniciando, sem resposta e encerrado | Implementada (Fase D) | Sim |
 | Relógio: "sincronizando" e "perdeu a trava" como estados separados | O programa só informa travado ou não | Não |
 | Desempenho (latência medida, pacotes perdidos, por fluxo) | Não existe | Não |
 | Diagnóstico e registros | Não existe | Não |
