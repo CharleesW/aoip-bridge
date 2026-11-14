@@ -111,6 +111,27 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding
 .form input[type=checkbox]{width:auto;margin:0 6px 0 0;vertical-align:-2px}
 .form label.check{align-self:center}
 [hidden]{display:none!important}
+/* Abas */
+.tabs{display:flex;gap:var(--s1);max-width:1280px;margin:0 auto;padding:var(--s3) var(--s5) 0}
+.tabs button{border-radius:var(--r-md) var(--r-md) 0 0;border-bottom:none}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--text);border-color:var(--border-strong)}
+/* Controller */
+.ctl td{width:22px;height:22px;min-width:22px}
+.ctl thead th.dev{height:auto;padding:4px 8px;white-space:nowrap;border-left:1px solid var(--border-strong);text-align:left;color:var(--text);max-width:none;overflow:visible}
+.ctl thead tr.chn th{height:92px;vertical-align:bottom;padding:4px 0;border-left:1px solid var(--grid-line);top:30px}
+.ctl thead tr.chn th span.v{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;font-size:11px;color:var(--text-2);display:inline-block;max-height:84px;overflow:hidden;text-overflow:ellipsis}
+.ctl thead tr.chn th.g{border-left-color:var(--border-strong)}
+.ctl tbody th{position:sticky;left:0;background:var(--surface);z-index:1;text-align:left;font-weight:400;font-size:12px;color:var(--text-2);padding:0 8px;white-space:nowrap;border-bottom:1px solid var(--grid-line);border-right:1px solid var(--border)}
+.ctl tbody tr.node th{color:var(--text);font-weight:600;padding:4px 8px}
+.ctl tbody tr.node td{border-bottom-color:var(--border)}
+.ctl td.g{border-left:1px solid var(--border-strong)}
+.ctl td.sum{color:var(--text-2);font:500 10px/1 var(--font-mono)}
+.ctl td.sum.on{background:var(--route-att);color:var(--on-route-att)}
+.ctl td.part{background:var(--route-att)}
+.ctl button.tog{background:none;border:none;padding:0 4px 0 0;color:var(--text);font:inherit;cursor:pointer}
+.ctl button.ren{background:none;border:none;padding:0;color:var(--text-3);cursor:pointer;font-size:11px;writing-mode:horizontal-tb;margin-bottom:2px}
+.ctl .tag{font-size:10px;color:var(--text-3);font-weight:400}
+.ctl .clk{color:var(--info);font-size:10px;font-weight:600}
 .bar{display:flex;gap:var(--s2);align-items:center;margin-bottom:var(--s3);flex-wrap:wrap}
 .bar .sp{flex:1}
 details summary{cursor:pointer;font-weight:600;font-size:16px}
@@ -194,15 +215,26 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
   <label class="theme">Tema<select id="theme" aria-label="Tema da interface"><option value="system">Sistema</option><option value="dark">Escuro</option><option value="light">Claro</option></select></label>
   <button class="subtle" id="quit" title="Fecha o programa e para o áudio">Encerrar</button>
 </header>
+<nav class="tabs" role="tablist" aria-label="Partes do painel">
+  <button role="tab" id="tabCtl" data-tab="ctl" aria-controls="ctlSec">Controller (rede)</button>
+  <button role="tab" id="tabLocal" data-tab="local" aria-controls="sitSec">Este computador</button>
+</nav>
 <main>
-  <section>
+  <section id="ctlSec" role="tabpanel" aria-labelledby="tabCtl">
+    <h2>Controller: roteamento da rede</h2>
+    <p class="sub">Todas as máquinas com o AoIP aparecem aqui, mesmo sem enviar nem receber nada. Colunas: quem envia (canais). Linhas: quem recebe (entradas). Clique no nome para abrir ou fechar; clique num cruzamento para ligar ou desligar. Cada entrada recebe de um canal; um canal pode ir para quantas entradas quiser. ✎ renomeia o canal.</p>
+    <div id="ctlAlert" role="alert"></div>
+    <div class="gridwrap"><table id="ctlGrid" class="ctl" aria-label="Roteamento da rede: canais enviados nas colunas, entradas nas linhas"></table></div>
+    <p class="keys">Dica: com as duas máquinas fechadas, clicar no cruzamento delas liga 1 para 1 (canal 1 na entrada 1, 2 na 2...).</p>
+  </section>
+  <section id="sitSec" role="tabpanel" aria-labelledby="tabLocal">
     <h2>Situação</h2>
     <p class="sub">Quando os quatro itens estiverem verdes, o áudio está passando.</p>
     <div class="steps" id="steps" aria-live="polite"></div>
     <div id="alert" role="alert"></div>
   </section>
 
-  <section id="setup">
+  <section id="setup" class="local">
     <details id="setupBox">
       <summary>Configuração</summary>
       <p class="sub" style="margin-top:8px">Mudanças aqui reiniciam o áudio por alguns segundos.</p>
@@ -230,7 +262,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
     </details>
   </section>
 
-  <section id="txSec">
+  <section id="txSec" class="local">
     <h2>Enviar para a rede</h2>
     <p class="sub">Linhas: entradas da placa. Colunas: canais que aparecem no Dante Controller, em fluxos de 8. Clique para ligar ou desligar.</p>
     <div class="bar"><button data-preset="tx:identity">1 para 1</button><button data-preset="tx:clear">Limpar</button><span class="sp"></span><div id="gain"></div></div>
@@ -238,7 +270,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
     <p class="keys">Teclado: <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> anda, <kbd>Enter</kbd> ou <kbd>Espaço</kbd> liga e desliga, <kbd>Del</kbd> desliga, <kbd>PgUp</kbd><kbd>PgDn</kbd> pula 8 linhas.</p>
   </section>
 
-  <section id="rxSec">
+  <section id="rxSec" class="local">
     <h2>Receber da rede</h2>
     <p class="sub">Escolha até 8 fluxos AES67 e ligue os canais deles nas saídas da placa.</p>
     <div class="slots" id="slots"></div>
@@ -267,7 +299,7 @@ async function post(path, params) {
   const q = new URLSearchParams(params).toString();
   const r = await fetch(path + '?' + q, {method: 'POST', headers: {'X-AoIP': '1'}});
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) showAlert(j.error || 'O comando falhou.');
+  if (!r.ok) (tab === 'ctl' ? ctlMsg : showAlert)(j.error || 'O comando falhou.');
   return r.ok;
 }
 // Icones (um traco so, 16 px). O estado nunca depende so da cor: sempre icone + texto.
@@ -351,9 +383,11 @@ function renderForm() {
   $('fTx').innerHTML = [0, 2, 8, 16, 24, 32, 64].map(n => `<option value="${n}"${n === S.cfg.tx ? ' selected' : ''}>${n ? n : 'Todas as entradas da placa'}</option>`).join('');
   $('fLat').value = [2, 4, 8, 16].includes(S.cfg.latency) ? S.cfg.latency : 4;
   // Placa virtual: escolhe os proprios canais, bloco e taxa (como no icone perto do relogio).
-  for (const el of document.querySelectorAll('.vonly')) el.hidden = !S.virtual || (el.classList.contains('winonly') && OS !== 'Windows');
+  // (a placa virtual do Mac ainda tem formato fixo: 32x32 a 48 kHz)
+  const vset = S.virtual && OS === 'Windows';
+  for (const el of document.querySelectorAll('.vonly')) el.hidden = !vset;
   $('lDev').hidden = !!S.virtual;
-  if (S.virtual) {
+  if (vset) {
     $('fCard').innerHTML = [2, 4, 8, 16, 32, 64].map(n => `<option value="${n}"${n === S.cfg.cardCh ? ' selected' : ''}>${n} x ${n}</option>`).join('');
     const kHz = S.cfg.rate === 44100 ? 44.1 : 48;
     $('fBuf').innerHTML = [64, 128, 256, 512].map(n => `<option value="${n}"${n === S.cfg.buffer ? ' selected' : ''}>${n} amostras (${(n / kHz).toFixed(1).replace('.', ',')} ms)</option>`).join('');
@@ -417,7 +451,7 @@ function renderGrids() {
   if (shape.key !== key) {
     shape.key = key;
     const groups = range(Math.ceil(S.ntx / 8)).map(k => ({n: Math.min(8, S.ntx - k * 8), t: `${netName()} : ${k + 1}`}));
-    buildGrid('txGrid', 'tx', range(S.ins), range(S.ntx), r => `Entrada ${r + 1}`, c => `${netName()} : ${Math.floor(c / 8) + 1}, canal ${c % 8 + 1}`, groups);
+    buildGrid('txGrid', 'tx', range(S.ins), range(S.ntx), r => `Entrada ${r + 1}`, c => { const own = (S.nodes || []).find(n => n.own); return `${netName()} : ${Math.floor(c / 8) + 1}, canal ${c % 8 + 1}${own && own.tx[c] ? ' (' + own.tx[c] + ')' : ''}`; }, groups);
     buildGrid('rxGrid', 'rx', rxRows, range(S.outs), r => `${SLOT[Math.floor(r / 8)]}${r % 8 + 1}  ${S.slots[Math.floor(r / 8)]}`, c => `Saída ${c + 1}`);
     $('rxGrid').parentElement.style.display = rxRows.length ? '' : 'none';
   }
@@ -576,6 +610,145 @@ $('quit').onclick = async () => {
   if (await post('/api/quit', {})) { stopped = true; document.querySelector('main').innerHTML = '<section><div class="empty">' + icon('') + 'Programa encerrado. Pode fechar esta aba.</div></section>'; setPill('', 'encerrado'); }
 };
 
+// ---------------------------------------------------------------- abas
+let tab = (() => { try { return localStorage.getItem('aoip-tab') || 'ctl'; } catch (e) { return 'ctl'; } })();
+function showTab(t) {
+  tab = t;
+  try { localStorage.setItem('aoip-tab', t); } catch (e) {}
+  for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', b.dataset.tab === t ? 'true' : 'false');
+  $('ctlSec').hidden = t !== 'ctl';
+  for (const el of [$('sitSec'), ...document.querySelectorAll('section.local')]) el.hidden = t !== 'local';
+  if (S && t === 'local') { shape = {}; renderForm(); renderSlots(); renderGrids(); }
+  if (S && t === 'ctl') { ctlKey = ''; renderCtl(); }
+}
+for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showTab(b.dataset.tab);
+
+// ---------------------------------------------------------------- Controller
+let ctlOpen = (() => { try { return JSON.parse(localStorage.getItem('aoip-ctl-open') || '{}'); } catch (e) { return {}; } })();
+let ctlKey = '', ctlBusy = false;
+function ctlMsg(msg, kind) { $('ctlAlert').innerHTML = msg ? `<div class="alert ${kind || ''}">${icon(kind || 'bad')}<span>${esc(msg)}</span></div>` : ''; }
+const pad2 = n => String(n).padStart(2, '0');
+// Quem envia: as maquinas AOIP (pelos canais delas) e os outros fluxos da rede (aparelhos
+// Dante em AES67, por exemplo), agrupados pelo nome antes de " : ".
+function ctlSources() {
+  const nodes = S.nodes || [];
+  const out = nodes.map(n => ({id: 'n:' + n.id, name: n.name, ip: n.ip, node: n,
+    ch: n.tx.map((label, k) => ({label, flow: `${n.name} : ${Math.floor(k / 8) + 1}`, c: k % 8}))}));
+  const ofNode = f => nodes.some(n => f.name.startsWith(n.name + ' : '));
+  const groups = {};
+  for (const f of S.flows.filter(f => f.ok && !ofNode(f)).sort((a, b) => a.name.localeCompare(b.name))) {
+    const i = f.name.lastIndexOf(' : '), dev = i > 0 ? f.name.slice(0, i) : f.name, key = 'f:' + f.origin + '/' + dev;
+    const g = groups[key] || (groups[key] = {id: key, name: dev, ip: f.origin, ch: []});
+    for (let c = 0; c < f.ch; c++) g.ch.push({label: `Ch ${pad2(g.ch.length + 1)}`, flow: f.name, c, title: `${f.name}, canal ${c + 1}`});
+  }
+  return out.concat(Object.values(groups));
+}
+const same = (r, ch) => r && r[0] === ch.flow && r[1] === ch.c;
+const rxLabel = (n, j) => `${n.virtual ? 'Entrada' : 'Saída da placa'} ${pad2(j + 1)}`;
+function renderCtl() {
+  const srcs = ctlSources(), rxs = S.nodes || [];
+  const key = JSON.stringify([srcs.map(s => [s.id, s.ip, s.ch.map(c => c.label + c.flow + c.c)]), rxs.map(n => [n.id, n.routes]), ctlOpen, S.gmIp]);
+  if (key === ctlKey) return;
+  ctlKey = key;
+  if (!rxs.length) { $('ctlGrid').innerHTML = `<tbody><tr><th style="padding:12px">Procurando máquinas na rede… (o painel mostra as máquinas com o AoIP ligado)</th></tr></tbody>`; return; }
+  const open = k => !!ctlOpen[k], clock = ip => ip && ip === S.gmIp ? ' <span class="clk" title="Relógio mestre da rede">RELÓGIO</span>' : '';
+  let h = '<thead><tr><th rowspan="2" style="min-width:150px">Recebe ↓ &nbsp; Envia →</th>';
+  for (const s of srcs) {
+    const o = open('s:' + s.id);
+    h += `<th class="dev" colspan="${o ? s.ch.length : 1}" title="${esc(s.name)} (${esc(s.ip)}): ${s.ch.length} canais"><button class="tog" data-act="tog" data-key="s:${esc(s.id)}" aria-expanded="${o}">${o ? '▾' : '▸'} ${esc(s.name)}</button>${clock(s.ip)} <span class="tag">${s.ch.length}</span></th>`;
+  }
+  h += '</tr><tr class="chn">';
+  for (const s of srcs) {
+    if (!open('s:' + s.id)) { h += '<th class="g"><span class="v">fechada</span></th>'; continue; }
+    s.ch.forEach((c, k) => {
+      const ren = s.node ? `<button class="ren" data-act="ren" data-node="${esc(s.node.id)}" data-k="${k}" title="Renomear ${esc(c.label)}" aria-label="Renomear ${esc(c.label)}">✎</button><br>` : '';
+      h += `<th class="${k === 0 ? 'g' : ''}" title="${esc(c.title || c.label)}">${ren}<span class="v">${esc(c.label)}</span></th>`;
+    });
+  }
+  h += '</tr></thead><tbody>';
+  for (const n of rxs) {
+    const o = open('r:' + n.id), cells = [];
+    for (const s of srcs) {
+      const so = open('s:' + s.id);
+      if (so) s.ch.forEach((c, k) => {
+        const cnt = n.routes.filter(r => same(r, c)).length;
+        cells.push(`<td class="sum${cnt ? ' on' : ''}${k === 0 ? ' g' : ''}" data-act="openrx" data-key="r:${esc(n.id)}" title="${esc(c.label)} de ${esc(s.name)} em ${cnt} entrada(s) de ${esc(n.name)}">${cnt || ''}</td>`);
+      });
+      else {
+        const cnt = n.routes.filter(r => s.ch.some(c => same(r, c))).length;
+        cells.push(`<td class="sum g${cnt ? ' on' : ''}" data-act="pair" data-rx="${esc(n.id)}" data-src="${esc(s.id)}" title="${cnt ? cnt + ' ligação(ões)' : 'Nenhuma ligação'} de ${esc(s.name)} para ${esc(n.name)}. Clique para ${cnt ? 'desligar' : 'ligar 1 para 1'}.">${cnt || ''}</td>`);
+      }
+    }
+    h += `<tr class="node"><th><button class="tog" data-act="tog" data-key="r:${esc(n.id)}" aria-expanded="${o}">${o ? '▾' : '▸'} ${esc(n.name)}</button>${clock(n.ip)} <span class="tag">${n.routes.length} entradas${n.own ? ' · este computador' : ''}</span></th>${o ? cells.map(() => '<td class="sum"></td>').join('') : cells.join('')}</tr>`;
+    if (!o) continue;
+    n.routes.forEach((r, j) => {
+      h += `<tr><th>${rxLabel(n, j)}</th>`;
+      for (const s of srcs) {
+        if (open('s:' + s.id)) s.ch.forEach((c, k) => {
+          const on = same(r, c);
+          h += `<td class="${on ? 'on' : ''}${k === 0 ? ' g' : ''}" data-act="x" data-rx="${esc(n.id)}" data-j="${j}" data-src="${esc(s.id)}" data-k="${k}" title="${esc(s.name)} ${esc(c.label)} → ${esc(n.name)} ${rxLabel(n, j)}: ${on ? 'ligado' : 'desligado'}" aria-label="${esc(s.name)} ${esc(c.label)} para ${esc(n.name)} ${rxLabel(n, j)}: ${on ? 'ligado' : 'desligado'}"></td>`;
+        });
+        else {
+          const k = s.ch.findIndex(c => same(r, c));
+          h += `<td class="sum g${k >= 0 ? ' part' : ''}" data-act="opensrc" data-key="s:${esc(s.id)}" title="${k >= 0 ? `Recebe ${esc(s.ch[k].label)} de ${esc(s.name)}` : 'Nada de ' + esc(s.name)}">${k >= 0 ? k + 1 : ''}</td>`;
+        }
+      }
+      h += '</tr>';
+    });
+  }
+  $('ctlGrid').innerHTML = h + '</tbody>';
+}
+function ctlToggle(key) {
+  ctlOpen[key] = !ctlOpen[key];
+  try { localStorage.setItem('aoip-ctl-open', JSON.stringify(ctlOpen)); } catch (e) {}
+  renderCtl();
+}
+async function ctlRoutes(node, list) { // list: [[entrada, fluxo|'' , canal]]
+  ctlBusy = true;
+  let done = 0;
+  for (const [j, flow, c] of list) {
+    if (list.length > 2) ctlMsg(`Aplicando ${++done} de ${list.length}…`, 'info');
+    if (!await post('/api/ctl/route', {node: node.id, rx: j, flow, ch: c})) { ctlBusy = false; return; }
+  }
+  ctlBusy = false;
+  ctlMsg('');
+}
+$('ctlGrid').addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || ctlBusy) return;
+  const srcs = ctlSources(), node = id => (S.nodes || []).find(n => n.id === id), src = id => srcs.find(s => s.id === id);
+  const a = el.dataset.act;
+  if (a === 'tog' || a === 'openrx' || a === 'opensrc') return ctlToggle(el.dataset.key);
+  if (a === 'ren') {
+    const n = node(el.dataset.node), k = +el.dataset.k;
+    if (!n) return;
+    const cur = n.tx[k].replace(/^Ch \d+ ?/, '');
+    const v = prompt(`Nome do Ch ${pad2(k + 1)} de ${n.name} (vai depois do número, ex.: Bumbo). Vazio = só "Ch ${pad2(k + 1)}".`, cur);
+    if (v === null) return;
+    if (await post('/api/ctl/name', {node: n.id, ch: k, label: v.trim()})) { ctlKey = ''; ctlMsg(''); }
+    return;
+  }
+  const n = node(el.dataset.rx), s = src(el.dataset.src);
+  if (!n || !s) return;
+  if (a === 'x') {
+    const c = s.ch[+el.dataset.k], j = +el.dataset.j;
+    await ctlRoutes(n, [[j, same(n.routes[j], c) ? '' : c.flow, c.c]]);
+  } else if (a === 'pair') {
+    const linked = n.routes.map((r, j) => s.ch.some(c => same(r, c)) ? j : -1).filter(j => j >= 0);
+    if (linked.length) {
+      if (await ask('Desligar ligações?', `Desligar as ${linked.length} entrada(s) de ${n.name} que recebem de ${s.name}?`, 'Desligar', true))
+        await ctlRoutes(n, linked.map(j => [j, '', 0]));
+    } else {
+      const count = Math.min(s.ch.length, n.routes.length);
+      if (!count) return;
+      const busy = n.routes.slice(0, count).filter(Boolean).length;
+      if (await ask('Ligar 1 para 1?', `${s.name} Ch 01–${pad2(count)} → ${n.name} ${rxLabel(n, 0)}–${pad2(count)}.${busy ? ` ${busy} dessas entradas já recebem de outra máquina e vão trocar.` : ''}`, 'Ligar'))
+        await ctlRoutes(n, s.ch.slice(0, count).map((c, j) => [j, c.flow, c.c]));
+    }
+  }
+});
+showTab(tab);
+
 async function tick() {
   if (stopped) return;
   try {
@@ -584,7 +757,9 @@ async function tick() {
     S = await r.json(); offline = 0;
     document.querySelector('main').classList.remove('stale');
     if (S.running) restartUntil = 0;
-    renderSteps(); renderForm(); renderSlots(); renderGrids();
+    renderCtl();
+    renderSteps(); // selo de estado do topo, nas duas abas
+    if (tab === 'local') { renderForm(); renderSlots(); renderGrids(); }
     if (!S.running && Date.now() < restartUntil) setPill('info', 'reiniciando…');
   } catch (e) {
     if (++offline <= 3) return; // uma falha isolada nao merece aviso

@@ -32,6 +32,8 @@ pub struct Config {
     pub buffer: usize,
     /// Placa virtual (Windows): mandar o som do Windows para a rede, num fluxo a parte.
     pub sys_audio: bool,
+    /// Nome de cada canal enviado, a parte depois de "Ch 01" ("Bumbo"). Vazio = so "Ch 01".
+    pub tx_names: Vec<String>,
 }
 
 /// Opcoes da placa virtual.
@@ -43,7 +45,7 @@ impl Default for Config {
         Self {
             device: String::new(), iface: String::new(), name: String::new(), tx_channels: 0,
             latency_ms: 4, rate: 0, rx: vec![String::new(); RX_SLOTS], tx_map: None, rx_map: None,
-            card_channels: 32, buffer: 128, sys_audio: false,
+            card_channels: 32, buffer: 128, sys_audio: false, tx_names: Vec::new(),
         }
     }
 }
@@ -68,7 +70,14 @@ impl Config {
                 "buffer" => c.buffer = v.parse().ok().filter(|n| BUFFERS.contains(n)).unwrap_or(128),
                 "sys_audio" => c.sys_audio = v == "1" || v == "true",
                 k => {
-                    if let Some(Ok(i)) = k.strip_prefix("rx").map(str::parse::<usize>) {
+                    if let Some(Ok(i)) = k.strip_prefix("txname").map(str::parse::<usize>) {
+                        if i < MAX_CH {
+                            if c.tx_names.len() <= i {
+                                c.tx_names.resize(i + 1, String::new());
+                            }
+                            c.tx_names[i] = v.into();
+                        }
+                    } else if let Some(Ok(i)) = k.strip_prefix("rx").map(str::parse::<usize>) {
                         if i < RX_SLOTS {
                             c.rx[i] = v.into();
                         }
@@ -92,6 +101,9 @@ impl Config {
             line(&self.device), line(&self.iface), line(&self.name), self.tx_channels, self.latency_ms, self.rate
         );
         t += &format!("card_channels={}\nbuffer={}\nsys_audio={}\n", self.card_channels, self.buffer, self.sys_audio as u8);
+        for (i, n) in self.tx_names.iter().enumerate().filter(|(_, n)| !n.trim().is_empty()) {
+            t += &format!("txname{i}={}\n", line(n));
+        }
         for (i, r) in self.rx.iter().enumerate() {
             t += &format!("rx{i}={}\n", line(r));
         }
@@ -240,6 +252,8 @@ pub struct Shared {
     pub devices: Mutex<Vec<(String, usize, usize)>>,
     /// Placas de rede do computador (para escolher no painel).
     pub ifaces: Mutex<Vec<NetIface>>,
+    /// Maquinas AOIP vistas na rede (Controller), inclusive esta.
+    pub nodes: Mutex<Vec<crate::routing::SeenNode>>,
     pub status: Mutex<Status>,
     pub flows: Mutex<Vec<Flow>>,
     pub slot_active: Mutex<Vec<bool>>,
@@ -254,7 +268,7 @@ impl Shared {
         let peaks = || (0..MAX_CH).map(|_| AtomicU32::new(0)).collect();
         Self {
             config: Mutex::new(config), config_path, tx: MatrixCell::new(), rx: MatrixCell::new(),
-            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
+            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), nodes: Mutex::new(vec![]), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
             slot_active: Mutex::new(vec![false; RX_SLOTS]), in_peak: peaks(), rx_peak: peaks(),
             restart: AtomicBool::new(false), quit: AtomicBool::new(false),
         }
@@ -307,6 +321,7 @@ mod tests {
         c.card_channels = 16;
         c.buffer = 256;
         c.sys_audio = true;
+        c.tx_names = vec!["Bumbo".into(), String::new(), "Caixa".into()];
         assert_eq!(Config::parse(&c.to_text()), c);
         assert_eq!(Config::parse("card_channels=7\nbuffer=100\n").card_channels, 32, "valor fora das opcoes volta ao padrao");
         assert_eq!(Config::parse("lixo\nlatency_ms=999\nrx9=x\n").latency_ms, 100);

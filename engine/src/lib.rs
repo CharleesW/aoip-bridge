@@ -237,6 +237,68 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
     Ok(())
 }
 
+/// Controller: anuncia esta maquina a rede uma vez por segundo e guarda as outras que se
+/// anunciam (para o painel mostrar todas e rotear entre elas).
+fn spawn_nodes(shared: Arc<Shared>, clock: Arc<Clock>, iface: Ipv4Addr, id: String, control: u16) -> Res<()> {
+    use aoip_core::routing::{note_node, NodeInfo, ANNOUNCE_GROUP, ANNOUNCE_PORT};
+    let sender = net::sender(iface, selftest())?;
+    let sock = net::listener(ANNOUNCE_GROUP, ANNOUNCE_PORT, iface)?;
+    sock.set_read_timeout(Some(Duration::from_millis(250)))?;
+    std::thread::spawn(move || {
+        let mut buf = vec![0u8; 16 * 1024];
+        let mut last = None::<Instant>;
+        while !clock.stop.load(Relaxed) {
+            if last.map_or(true, |t| t.elapsed() >= Duration::from_secs(1)) {
+                last = Some(Instant::now());
+                let own = NodeInfo::from_shared(&shared, id.clone(), iface, control);
+                let _ = sender.send_to(own.encode().as_bytes(), (ANNOUNCE_GROUP, ANNOUNCE_PORT));
+                note_node(&mut shared.nodes.lock().unwrap(), own, true, Instant::now());
+            }
+            if let Ok((n, _)) = sock.recv_from(&mut buf) {
+                if let Some(info) = std::str::from_utf8(&buf[..n]).ok().and_then(NodeInfo::parse) {
+                    if info.id != id {
+                        note_node(&mut shared.nodes.lock().unwrap(), info, false, Instant::now());
+                    }
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Controller: atende os comandos de roteamento que outros paineis mandam para esta maquina
+/// ("ligue sua entrada 3 no canal 2 do fluxo X", "renomeie seu canal 5"). So da rede local.
+fn spawn_control(shared: Arc<Shared>, clock: Arc<Clock>, port: u16) -> Res<()> {
+    let listener = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port))
+        .map_err(|e| format!("Nao consegui abrir a porta {port} do Controller ({e})."))?;
+    listener.set_nonblocking(true)?;
+    std::thread::spawn(move || {
+        while !clock.stop.load(Relaxed) {
+            let Ok((conn, peer)) = listener.accept() else {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            };
+            let local = match peer.ip() {
+                IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || ip.is_link_local(),
+                IpAddr::V6(ip) => ip.is_loopback(),
+            };
+            let shared = shared.clone();
+            std::thread::spawn(move || {
+                use std::io::{BufRead, BufReader, Write};
+                let _ = conn.set_nonblocking(false);
+                let _ = conn.set_read_timeout(Some(Duration::from_secs(3)));
+                let mut line = String::new();
+                if BufReader::new(&conn).read_line(&mut line).is_err() {
+                    return;
+                }
+                let reply = if local { aoip_core::routing::handle_command(&shared, &line) } else { "ERR so aceito comandos da rede local".into() };
+                let _ = (&conn).write_all(format!("{reply}\n").as_bytes());
+            });
+        }
+    });
+    Ok(())
+}
+
 struct TxFlow {
     session: Session,
     dest: SocketAddrV4,
@@ -560,6 +622,14 @@ pub fn start_network(
     let own: OwnFlows = Arc::new(Mutex::new(flows.iter().map(|f| f.session.name.clone()).collect()));
     spawn_tx(clock.clone(), tx_fifo.clone(), flows, iface, 0)?;
     spawn_rx(shared.clone(), rx_fifos.clone(), iface, clock.clone(), own.clone())?;
+    // Controller: o AoIP Bridge usa a porta 8791 e a placa virtual a 8792 (podem estar no
+    // mesmo computador). Sem a porta de comandos o resto funciona; o painel avisa.
+    let instance = if flow_base == 0 { 0u16 } else { 1 };
+    let control = aoip_core::routing::CONTROL_PORT + instance;
+    if let Err(e) = spawn_control(shared.clone(), clock.clone(), control) {
+        shared.status.lock().unwrap().notice = e.to_string();
+    }
+    spawn_nodes(shared.clone(), clock.clone(), iface, format!("{iface}/{instance}"), control)?;
 
     // Entrada da placa -> matriz TX -> fila de rede.
     let (sh, fifo) = (shared.clone(), tx_fifo.clone());

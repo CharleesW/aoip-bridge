@@ -166,6 +166,42 @@ fn action(shared: &Shared, path: &str, query: &str) -> Result<(), String> {
             shared.restart.store(true, Relaxed);
             return Ok(());
         }
+        // Controller: rota ou nome numa maquina qualquer da rede (esta ou outra).
+        "/api/ctl/route" | "/api/ctl/name" => {
+            let id = q("node").unwrap_or_default();
+            let node = shared.nodes.lock().unwrap().iter().find(|n| n.info.id == id).cloned()
+                .ok_or("Essa maquina nao esta mais na rede.")?;
+            let command = if path == "/api/ctl/route" {
+                let rx = num("rx")?;
+                match q("flow").filter(|f| !f.trim().is_empty()) {
+                    Some(flow) => format!("ROUTE {rx} {} {flow}", num("ch")?),
+                    None => format!("UNROUTE {rx}"),
+                }
+            } else {
+                format!("NAME {} {}", num("ch")?, q("label").unwrap_or_default())
+            };
+            if node.own {
+                let reply = crate::routing::handle_command(shared, &command);
+                if let Some(e) = reply.strip_prefix("ERR ") {
+                    return Err(e.to_string());
+                }
+            } else {
+                crate::routing::send_command(node.info.ip, node.info.control, &command)?;
+            }
+            // Mostra a mudanca ja (o anuncio da maquina confirma em ate 1 s).
+            let mut nodes = shared.nodes.lock().unwrap();
+            if let Some(n) = nodes.iter_mut().find(|n| n.info.id == id) {
+                if path == "/api/ctl/route" {
+                    let rx = num("rx")?;
+                    if let Some(r) = n.info.routes.get_mut(rx) {
+                        *r = q("flow").filter(|f| !f.trim().is_empty()).and_then(|f| Some((f, num("ch").ok()?)));
+                    }
+                } else if let Some(t) = n.info.tx.get_mut(num("ch")?) {
+                    *t = crate::routing::tx_label(num("ch")?, &q("label").unwrap_or_default());
+                }
+            }
+            return Ok(());
+        }
         "/api/quit" => {
             shared.quit.store(true, Relaxed);
             return Ok(());
@@ -191,19 +227,29 @@ fn state_json(shared: &Shared) -> String {
         .map(|(n, i, o)| format!("{{\"name\":{},\"ins\":{i},\"outs\":{o}}}", json_str(n))).collect();
     let flows: Vec<String> = shared.flows.lock().unwrap().iter()
         .map(|f| format!("{{\"name\":{},\"addr\":{},\"ch\":{},\"ok\":{},\"origin\":{}}}", json_str(&f.name), json_str(&f.addr), f.channels, f.compatible, json_str(&f.origin))).collect();
+    let nodes: Vec<String> = shared.nodes.lock().unwrap().iter().map(|n| {
+        let i = &n.info;
+        let tx: Vec<String> = i.tx.iter().map(|t| json_str(t)).collect();
+        let routes: Vec<String> = i.routes.iter().map(|r| match r {
+            Some((f, c)) => format!("[{},{c}]", json_str(f)),
+            None => "null".into(),
+        }).collect();
+        format!("{{\"id\":{},\"name\":{},\"ip\":\"{}\",\"ver\":{},\"own\":{},\"virtual\":{},\"tx\":[{}],\"routes\":[{}]}}",
+            json_str(&i.id), json_str(&i.name), i.ip, json_str(&i.version), n.own, i.virtual_card, tx.join(","), routes.join(","))
+    }).collect();
     let ifaces: Vec<String> = shared.ifaces.lock().unwrap().iter()
         .map(|i| format!("{{\"id\":{},\"label\":{},\"ip\":\"{}\"}}", json_str(&i.id), json_str(&i.label), i.ip)).collect();
     let slots: Vec<String> = cfg.rx.iter().map(|s| json_str(s)).collect();
     let active: Vec<String> = shared.slot_active.lock().unwrap().iter().map(|b| b.to_string()).collect();
     format!(
         "{{\"running\":{},\"error\":{},\"device\":{},\"iface\":{},\"ins\":{},\"outs\":{},\"ntx\":{},\"rate\":{},\"nrx\":{NET_RX},\
-         \"ptp\":{},\"gm\":{},\"gmIp\":{},\"gmName\":{},\"gmSelf\":{},\"name\":{},\"autoName\":{},\"ifaceLabel\":{},\"notice\":{},\"ifaces\":[{}],\"virtual\":{},\"auxName\":{},\
+         \"ptp\":{},\"gm\":{},\"gmIp\":{},\"gmName\":{},\"gmSelf\":{},\"name\":{},\"autoName\":{},\"ifaceLabel\":{},\"notice\":{},\"ifaces\":[{}],\"virtual\":{},\"auxName\":{},\"nodes\":[{}],\
          \"txFill\":{},\"under\":{},\"over\":{},\
          \"cfg\":{{\"device\":{},\"iface\":{},\"name\":{},\"tx\":{},\"latency\":{},\"rate\":{},\"cardCh\":{},\"buffer\":{},\"sysAudio\":{}}},\
          \"devices\":[{}],\"flows\":[{}],\"slots\":[{}],\"active\":[{}],\"tx\":{},\"rx\":{},\"lvIn\":{},\"lvRx\":{}}}",
         st.running, json_str(&st.error), json_str(&st.device), json_str(&st.iface), st.ins, st.outs, st.net_tx, st.rate,
         st.ptp, json_str(&st.grandmaster), json_str(&st.gm_ip), json_str(&st.gm_name), st.gm_self,
-        json_str(&st.name), json_str(&st.auto_name), json_str(&st.iface_label), json_str(&st.notice), ifaces.join(","), st.virtual_card, json_str(&st.aux_name), st.tx_fill, st.underruns, st.overruns,
+        json_str(&st.name), json_str(&st.auto_name), json_str(&st.iface_label), json_str(&st.notice), ifaces.join(","), st.virtual_card, json_str(&st.aux_name), nodes.join(","), st.tx_fill, st.underruns, st.overruns,
         json_str(&cfg.device), json_str(&cfg.iface), json_str(&cfg.name), cfg.tx_channels, cfg.latency_ms, cfg.rate, cfg.card_channels, cfg.buffer, cfg.sys_audio,
         devices.join(","), flows.join(","), slots.join(","), active.join(","),
         points(&shared.tx.snapshot()), points(&shared.rx.snapshot()),

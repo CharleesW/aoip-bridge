@@ -45,8 +45,11 @@ rem Firewall: libera a chegada do audio em rede (relogio PTP 319/320, fluxos 500
 rem em qualquer tipo de rede. Sem isso o Windows bloqueia em silencio quando a rede e "Publica"
 rem (ex.: a rede da igreja), mesmo que o REAPER tenha sido liberado em casa.
 netsh advfirewall firewall delete rule name="AoIP Bridge - audio em rede" >nul 2>&1
-netsh advfirewall firewall add rule name="AoIP Bridge - audio em rede" dir=in action=allow protocol=UDP localport=319,320,5004,9875 profile=any >nul
-if errorlevel 1 echo AVISO: nao consegui liberar o Firewall. Se o audio nao chegar, libere as portas UDP 319, 320, 5004 e 9875.
+netsh advfirewall firewall add rule name="AoIP Bridge - audio em rede" dir=in action=allow protocol=UDP localport=319,320,5004,8793,9875 profile=any >nul
+if errorlevel 1 echo AVISO: nao consegui liberar o Firewall. Se o audio nao chegar, libere as portas UDP 319, 320, 5004, 8793 e 9875.
+rem Controller: comandos de roteamento vindos de outros paineis da rede (TCP 8791 e 8792).
+netsh advfirewall firewall delete rule name="AoIP Bridge - Controller" >nul 2>&1
+netsh advfirewall firewall add rule name="AoIP Bridge - Controller" dir=in action=allow protocol=TCP localport=8791,8792 profile=any remoteip=localsubnet >nul
 
 rem Remove a instalacao antiga (versao 0.2, na pasta do usuario).
 if exist "%LOCALAPPDATA%\AoIP Bridge" rmdir /s /q "%LOCALAPPDATA%\AoIP Bridge"
@@ -66,6 +69,6 @@ echo O AoIP Virtual ja esta ligado: veja o icone perto do relogio (clique para o
 echo O driver "AoIP Bridge ASIO" ja pode ser escolhido no REAPER:
 echo   Options ^> Preferences ^> Audio ^> Device ^> Audio system: ASIO ^> ASIO Driver: AoIP Bridge ASIO
 echo O botao "ASIO Configuration" (ou o icone perto do relogio) abre o painel: http://127.0.0.1:8788
-echo O Firewall do Windows ja foi liberado para o audio em rede (portas UDP 319, 320, 5004 e 9875).
+echo O Firewall do Windows ja foi liberado para o audio em rede e para o Controller.
 echo.
 pause

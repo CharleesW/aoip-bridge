@@ -3,6 +3,7 @@
 pub mod matrix;
 pub mod ptp;
 pub mod resample;
+pub mod routing;
 pub mod rtp;
 pub mod sap;
 pub mod sdp;

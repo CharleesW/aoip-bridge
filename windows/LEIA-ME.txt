@@ -1,4 +1,4 @@
-AoIP Bridge para Windows (versao de teste 0.5.0)
+AoIP Bridge para Windows (versao de teste 0.6.0)
 ===============================================
 
 ATENCAO: versao de teste. O AoIP Virtual e o driver ASIO desta versao foram testados so
@@ -35,13 +35,19 @@ COMO USAR NO REAPER
    Audio system: ASIO.  ASIO Driver: AoIP Bridge ASIO.
 2. Os canais e a taxa sao os escolhidos no icone do AoIP Virtual. Se voce mudar la com o
    REAPER aberto, o REAPER reabre a placa sozinho.
-3. Painel (icone > Abrir painel, ou "ASIO Configuration..." no REAPER):
+3. Painel (icone > Abrir painel, ou "ASIO Configuration..." no REAPER). A primeira aba,
+   "Controller (rede)", mostra TODAS as maquinas com o AoIP na rede (Windows e Mac) e liga
+   qualquer canal de qualquer maquina em qualquer entrada de outra, de qualquer painel.
+   Clique no nome da maquina para abrir/fechar; com as duas fechadas, clicar no cruzamento
+   liga 1 para 1. O lapis (lapis) ao lado do canal renomeia: "Ch 01 Bumbo".
+   A aba "Este computador" tem o resto:
    - "Enviar para a rede": as linhas "Entrada 1, 2..." sao as SAIDAS do REAPER.
      Os fluxos enviados se chamam "NOME-DO-PC Virtual : 1", ": 2"... (8 canais cada).
    - "Receber da rede": escolha os fluxos e ligue os canais; eles chegam nas ENTRADAS
      do REAPER (AoIP Entrada 1, 2...).
    - Mudou algo em Configuracao? Vale na hora (a rede religa em ~1 s).
-4. O Firewall do Windows e liberado pelo instalador (portas UDP 319, 320, 5004, 9875).
+4. O Firewall do Windows e liberado pelo instalador (UDP 319, 320, 5004, 8793, 9875 e,
+   para o Controller, TCP 8791 e 8792 so da rede local).
 
 LIMITES DESTA VERSAO (importante)
 - O AoIP NAO aparece na lista de saidas de som do Windows (caixas/fones): isso exige um
