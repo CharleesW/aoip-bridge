@@ -5,7 +5,7 @@ resolver = "2"
 
 # Versao do produto: aparece no painel de todos os programas e no nome dos pacotes.
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 
 [profile.release]
 opt-level = 3

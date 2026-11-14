@@ -62,6 +62,8 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AoIP Virtual" /
 echo.
 rem Abre o AoIP Virtual como usuario comum (nao como administrador).
 start "" explorer.exe "%DEST%\aoip-winvirtual.exe"
+rem Atualizacao feita pelo AoIP Bridge: abre ele de novo.
+echo %* | find "--abrir-bridge" >nul && start "" explorer.exe "%DEST%\aoip-bridge.exe"
 
 echo INSTALACAO OK: %DEST%
 echo.
@@ -71,4 +73,6 @@ echo   Options ^> Preferences ^> Audio ^> Device ^> Audio system: ASIO ^> ASIO D
 echo O botao "ASIO Configuration" (ou o icone perto do relogio) abre o painel: http://127.0.0.1:8788
 echo O Firewall do Windows ja foi liberado para o audio em rede e para o Controller.
 echo.
+rem Atualizacao automatica (--auto): fecha sozinho depois de alguns segundos.
+echo %* | find "--auto" >nul && (timeout /t 8 >nul & exit /b 0)
 pause

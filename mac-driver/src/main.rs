@@ -75,6 +75,7 @@ fn main() {
     }
     *shared.devices.lock().unwrap() = vec![(DRIVER_NAME.to_string(), CHANNELS, CHANNELS)];
     shared.status.lock().unwrap().virtual_card = true; // no Controller, as entradas sao "Entrada 01..."
+    aoip_engine::update::spawn(shared.clone(), aoip_engine::update::Program::Virtual);
     refresh_ifaces(&shared);
     shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), " Virtual");
     let panel: u16 = std::env::var("AOIP_PANEL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8788);

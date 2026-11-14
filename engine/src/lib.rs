@@ -3,6 +3,7 @@
 //! placa de verdade (programa `aoip-bridge`, via cpal) ou o driver ASIO virtual.
 pub mod local;
 pub mod net;
+pub mod update;
 pub mod virtual_card;
 
 use aoip_core::state::{auto_name, choose_iface, device_of_flow, note_peaks, Config, Flow, Shared, NET_RX, RX_SLOTS};

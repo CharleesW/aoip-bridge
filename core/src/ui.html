@@ -111,6 +111,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding
 .form input[type=checkbox]{width:auto;margin:0 6px 0 0;vertical-align:-2px}
 .form label.check{align-self:center}
 [hidden]{display:none!important}
+button.small{padding:3px 10px;font-size:12px}
 /* Abas */
 .tabs{display:flex;gap:var(--s1);max-width:1280px;margin:0 auto;padding:var(--s3) var(--s5) 0}
 .tabs button{border-radius:var(--r-md) var(--r-md) 0 0;border-bottom:none}
@@ -210,7 +211,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
 <body>
 <header>
   <svg class="mark" viewBox="0 0 24 24" role="img" aria-label="AOIP-Bridge"><path d="M4 18H8C12.5 18 11.5 6 16 6H20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="4" cy="18" r="2.6" fill="currentColor"/><circle cx="20" cy="6" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="3" fill="#26A88B" stroke="var(--bg)" stroke-width="1.2"/></svg>
-  <h1>AOIP-Bridge</h1><span class="ver" title="Versão do programa">v{{VERSAO}} · {{SISTEMA}}</span><span class="badge" id="pill" role="status">iniciando…</span>
+  <h1>AOIP-Bridge</h1><span class="ver" title="Versão do programa">v{{VERSAO}} · {{SISTEMA}}</span><button class="primary small" id="updBtn" hidden></button><span class="badge" id="pill" role="status">iniciando…</span>
   <span class="sp"></span>
   <label class="theme">Tema<select id="theme" aria-label="Tema da interface"><option value="system">Sistema</option><option value="dark">Escuro</option><option value="light">Claro</option></select></label>
   <button class="subtle" id="quit" title="Fecha o programa e para o áudio">Encerrar</button>
@@ -257,6 +258,8 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
           <option value="4">4 ms: recomendado</option>
           <option value="8">8 ms: se houver estalos</option>
           <option value="16">16 ms: Wi-Fi ou computador lento</option></select></label>
+        <label class="check"><span><input type="checkbox" id="fUpd">Procurar atualizações no GitHub</span><span class="msg" id="fUpdMsg"></span></label>
+        <div><button id="fUpdNow" type="button">Procurar agora</button></div>
         <button class="primary" id="fSave">Salvar e iniciar</button>
       </div>
     </details>
@@ -382,6 +385,7 @@ function renderForm() {
   $('fNameMsg').textContent = `Até 24 letras. Vazio: usa o nome do computador (“${S.autoName || '?'}”).`;
   $('fTx').innerHTML = [0, 2, 8, 16, 24, 32, 64].map(n => `<option value="${n}"${n === S.cfg.tx ? ' selected' : ''}>${n ? n : 'Todas as entradas da placa'}</option>`).join('');
   $('fLat').value = [2, 4, 8, 16].includes(S.cfg.latency) ? S.cfg.latency : 4;
+  $('fUpd').checked = S.cfg.updates !== false;
   // Placa virtual: escolhe os proprios canais, bloco e taxa (como no icone perto do relogio).
   // (a placa virtual do Mac ainda tem formato fixo: 32x32 a 48 kHz)
   const vset = S.virtual && OS === 'Windows';
@@ -601,6 +605,7 @@ $('fSave').onclick = async () => {
   const btn = $('fSave');
   btn.disabled = true; btn.textContent = 'Salvando…';
   const extra = S.virtual ? {card: $('fCard').value, buffer: $('fBuf').value, sys: $('fSys').checked ? '1' : '0'} : {};
+  extra.updates = $('fUpd').checked ? '1' : '0';
   const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value, ...extra});
   btn.disabled = false; btn.textContent = 'Salvar e iniciar';
   if (ok) { formTouched = false; $('setupBox').open = false; setPill('info', 'reiniciando…'); shape = {}; restartUntil = Date.now() + 20000; }
@@ -609,6 +614,29 @@ $('quit').onclick = async () => {
   if (!await ask('Encerrar o programa?', 'O áudio para de passar e os fluxos somem da rede até você abrir o programa de novo.', 'Encerrar', true)) return;
   if (await post('/api/quit', {})) { stopped = true; document.querySelector('main').innerHTML = '<section><div class="empty">' + icon('') + 'Programa encerrado. Pode fechar esta aba.</div></section>'; setPill('', 'encerrado'); }
 };
+
+// ---------------------------------------------------------------- atualizacao pelo GitHub
+const UPD_TEXT = {checking: 'Procurando…', uptodate: 'Esta já é a versão mais nova.', downloading: 'Baixando…', installing: 'Instalando…'};
+function renderUpdate() {
+  const u = S.update || {}, b = $('updBtn');
+  b.hidden = !['available', 'downloading', 'installing'].includes(u.state);
+  b.disabled = u.state !== 'available';
+  b.textContent = u.state === 'available' ? `Atualizar para v${u.version}` : (UPD_TEXT[u.state] || '');
+  b.title = u.message || '';
+  $('fUpdMsg').textContent = u.state === 'available' ? `Versão ${u.version} disponível.` : u.state === 'error' ? `Não deu para procurar: ${u.message}` : (UPD_TEXT[u.state] || 'Ao abrir o programa e a cada 6 horas.');
+  if (['downloading', 'installing', 'error'].includes(u.state) && u.message && u.message !== renderUpdate.last) {
+    renderUpdate.last = u.message;
+    (tab === 'ctl' ? ctlMsg : showAlert)(u.message, u.state === 'error' ? 'bad' : 'info');
+  }
+}
+$('updBtn').onclick = async () => {
+  const u = S.update || {};
+  const how = OS === 'Windows' ? 'O Windows vai pedir permissão de administrador: aceite. O AoIP fecha e abre de novo sozinho.'
+    : 'Vai abrir o Terminal, onde o Mac pede a sua senha. A placa virtual volta sozinha; o AoIP Bridge (placa de verdade), abra de novo depois.';
+  if (await ask(`Atualizar para a versão ${u.version}?`, `O AoIP baixa a versão nova do GitHub, confere o arquivo e abre o instalador. Antes, feche o REAPER e outros programas de áudio. ${how} O que mudou: ${u.page}`, 'Atualizar'))
+    await post('/api/update', {});
+};
+$('fUpdNow').onclick = () => post('/api/update/check', {});
 
 // ---------------------------------------------------------------- abas
 let tab = (() => { try { return localStorage.getItem('aoip-tab') || 'ctl'; } catch (e) { return 'ctl'; } })();
@@ -759,6 +787,7 @@ async function tick() {
     if (S.running) restartUntil = 0;
     renderCtl();
     renderSteps(); // selo de estado do topo, nas duas abas
+    renderUpdate();
     if (tab === 'local') { renderForm(); renderSlots(); renderGrids(); }
     if (!S.running && Date.now() < restartUntil) setPill('info', 'reiniciando…');
   } catch (e) {

@@ -48,6 +48,7 @@ fn start_core() -> Option<Arc<VirtualCard>> {
     shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), " Virtual");
     refresh_ifaces(&shared);
     let card = VirtualCard::new(shared.clone());
+    aoip_engine::update::spawn(shared.clone(), aoip_engine::update::Program::Virtual);
     ui::serve(shared, panel);
     match TcpListener::bind(("127.0.0.1", local::PORT)) {
         Ok(l) => local::serve(card.clone(), l),
@@ -101,6 +102,7 @@ mod win {
     const ID_48K: usize = 301;
     const ID_SYS: usize = 400;
     const ID_BOOT: usize = 401;
+    const ID_UPDATE: usize = 500;
     const ID_QUIT: usize = 900;
     const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     const RUN_VALUE: &str = "AoIP Virtual";
@@ -249,6 +251,10 @@ mod win {
         add_item(menu, 0, &clock, false, false);
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
         add_item(menu, ID_PANEL, "Abrir painel", false, true);
+        let upd = c.shared.update.lock().unwrap().clone();
+        if upd.state == "available" {
+            add_item(menu, ID_UPDATE, &format!("Atualizar para a versão {} (feche o REAPER antes)", upd.version), false, true);
+        }
 
         let sub = CreatePopupMenu();
         for (i, n) in CARD_CHANNELS.iter().enumerate() {
@@ -293,6 +299,7 @@ mod win {
             ID_48K => c.apply(|cfg| cfg.rate = 48_000),
             ID_SYS => c.apply(|cfg| cfg.sys_audio = !cfg.sys_audio),
             ID_BOOT => set_start_with_windows(!starts_with_windows()),
+            ID_UPDATE => c.shared.update_install.store(true, Relaxed),
             ID_QUIT => quit(hwnd),
             _ => {}
         }

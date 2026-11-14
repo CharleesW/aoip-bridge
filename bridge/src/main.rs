@@ -231,6 +231,7 @@ fn main() {
     }
     shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), "");
     ui::serve(shared.clone(), listener);
+    aoip_engine::update::spawn(shared.clone(), aoip_engine::update::Program::Bridge);
     println!("painel: {url}");
     if selftest() {
         report(&format!("AUTOTESTE ({}): tom de teste e relogio local; nada sai para a rede.", std::env::consts::OS));

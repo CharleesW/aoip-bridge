@@ -9,6 +9,7 @@ pub mod sap;
 pub mod sdp;
 pub mod state;
 pub mod ui;
+pub mod update;
 
 /// Versao do produto (`[workspace.package]` no Cargo.toml da raiz).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

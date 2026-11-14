@@ -1,4 +1,4 @@
-AoIP Bridge para Windows (versao de teste 0.6.0)
+AoIP Bridge para Windows (versao de teste 0.6.1)
 ===============================================
 
 ATENCAO: versao de teste. O AoIP Virtual e o driver ASIO desta versao foram testados so
@@ -57,6 +57,12 @@ LIMITES DESTA VERSAO (importante)
   Dante Controller). As ligacoes entre os nossos programas sao feitas no painel.
 - So aparelhos Dante com "AES67 Mode" ligado conseguem ouvir os fluxos do AoIP Bridge.
 - So programas de 64 bits. Use cabo de rede: por Wi-Fi o audio falha.
+
+ATUALIZACOES
+O AoIP procura versoes novas no GitHub ao abrir e a cada 6 horas. Quando houver, aparece
+"Atualizar para vX" no topo do painel (e no menu do icone). Ao clicar, ele baixa, confere o
+arquivo e abre o instalador: feche o REAPER antes e aceite o pedido de administrador.
+Para desligar: Este computador > Configuracao > "Procurar atualizacoes no GitHub".
 
 PARA REMOVER
 Feche o REAPER e rode "Desinstalar.bat" (em C:\Program Files\AoIP Bridge).

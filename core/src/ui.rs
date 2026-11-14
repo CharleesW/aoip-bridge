@@ -161,6 +161,9 @@ fn action(shared: &Shared, path: &str, query: &str) -> Result<(), String> {
             if let Some(v) = q("sys") {
                 c.sys_audio = v == "1";
             }
+            if let Some(v) = q("updates") {
+                c.check_updates = v == "1";
+            }
             drop(c);
             shared.save();
             shared.restart.store(true, Relaxed);
@@ -202,6 +205,14 @@ fn action(shared: &Shared, path: &str, query: &str) -> Result<(), String> {
             }
             return Ok(());
         }
+        "/api/update" => {
+            shared.update_install.store(true, Relaxed);
+            return Ok(());
+        }
+        "/api/update/check" => {
+            shared.update_check.store(true, Relaxed);
+            return Ok(());
+        }
         "/api/quit" => {
             shared.quit.store(true, Relaxed);
             return Ok(());
@@ -237,20 +248,21 @@ fn state_json(shared: &Shared) -> String {
         format!("{{\"id\":{},\"name\":{},\"ip\":\"{}\",\"ver\":{},\"own\":{},\"virtual\":{},\"tx\":[{}],\"routes\":[{}]}}",
             json_str(&i.id), json_str(&i.name), i.ip, json_str(&i.version), n.own, i.virtual_card, tx.join(","), routes.join(","))
     }).collect();
+    let upd = shared.update.lock().unwrap().clone();
     let ifaces: Vec<String> = shared.ifaces.lock().unwrap().iter()
         .map(|i| format!("{{\"id\":{},\"label\":{},\"ip\":\"{}\"}}", json_str(&i.id), json_str(&i.label), i.ip)).collect();
     let slots: Vec<String> = cfg.rx.iter().map(|s| json_str(s)).collect();
     let active: Vec<String> = shared.slot_active.lock().unwrap().iter().map(|b| b.to_string()).collect();
     format!(
         "{{\"running\":{},\"error\":{},\"device\":{},\"iface\":{},\"ins\":{},\"outs\":{},\"ntx\":{},\"rate\":{},\"nrx\":{NET_RX},\
-         \"ptp\":{},\"gm\":{},\"gmIp\":{},\"gmName\":{},\"gmSelf\":{},\"name\":{},\"autoName\":{},\"ifaceLabel\":{},\"notice\":{},\"ifaces\":[{}],\"virtual\":{},\"auxName\":{},\"nodes\":[{}],\
+         \"ptp\":{},\"gm\":{},\"gmIp\":{},\"gmName\":{},\"gmSelf\":{},\"name\":{},\"autoName\":{},\"ifaceLabel\":{},\"notice\":{},\"ifaces\":[{}],\"virtual\":{},\"auxName\":{},\"nodes\":[{}],\"update\":{{\"state\":{},\"version\":{},\"page\":{},\"message\":{}}},\
          \"txFill\":{},\"under\":{},\"over\":{},\
-         \"cfg\":{{\"device\":{},\"iface\":{},\"name\":{},\"tx\":{},\"latency\":{},\"rate\":{},\"cardCh\":{},\"buffer\":{},\"sysAudio\":{}}},\
+         \"cfg\":{{\"device\":{},\"iface\":{},\"name\":{},\"tx\":{},\"latency\":{},\"rate\":{},\"cardCh\":{},\"buffer\":{},\"sysAudio\":{},\"updates\":{}}},\
          \"devices\":[{}],\"flows\":[{}],\"slots\":[{}],\"active\":[{}],\"tx\":{},\"rx\":{},\"lvIn\":{},\"lvRx\":{}}}",
         st.running, json_str(&st.error), json_str(&st.device), json_str(&st.iface), st.ins, st.outs, st.net_tx, st.rate,
         st.ptp, json_str(&st.grandmaster), json_str(&st.gm_ip), json_str(&st.gm_name), st.gm_self,
-        json_str(&st.name), json_str(&st.auto_name), json_str(&st.iface_label), json_str(&st.notice), ifaces.join(","), st.virtual_card, json_str(&st.aux_name), nodes.join(","), st.tx_fill, st.underruns, st.overruns,
-        json_str(&cfg.device), json_str(&cfg.iface), json_str(&cfg.name), cfg.tx_channels, cfg.latency_ms, cfg.rate, cfg.card_channels, cfg.buffer, cfg.sys_audio,
+        json_str(&st.name), json_str(&st.auto_name), json_str(&st.iface_label), json_str(&st.notice), ifaces.join(","), st.virtual_card, json_str(&st.aux_name), nodes.join(","), json_str(&upd.state), json_str(&upd.version), json_str(&upd.page), json_str(&upd.message), st.tx_fill, st.underruns, st.overruns,
+        json_str(&cfg.device), json_str(&cfg.iface), json_str(&cfg.name), cfg.tx_channels, cfg.latency_ms, cfg.rate, cfg.card_channels, cfg.buffer, cfg.sys_audio, cfg.check_updates,
         devices.join(","), flows.join(","), slots.join(","), active.join(","),
         points(&shared.tx.snapshot()), points(&shared.rx.snapshot()),
         levels(take_peaks(&shared.in_peak, st.ins)), levels(take_peaks(&shared.rx_peak, NET_RX)),

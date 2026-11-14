@@ -34,6 +34,8 @@ pub struct Config {
     pub sys_audio: bool,
     /// Nome de cada canal enviado, a parte depois de "Ch 01" ("Bumbo"). Vazio = so "Ch 01".
     pub tx_names: Vec<String>,
+    /// Procurar versoes novas no GitHub.
+    pub check_updates: bool,
 }
 
 /// Opcoes da placa virtual.
@@ -45,7 +47,7 @@ impl Default for Config {
         Self {
             device: String::new(), iface: String::new(), name: String::new(), tx_channels: 0,
             latency_ms: 4, rate: 0, rx: vec![String::new(); RX_SLOTS], tx_map: None, rx_map: None,
-            card_channels: 32, buffer: 128, sys_audio: false, tx_names: Vec::new(),
+            card_channels: 32, buffer: 128, sys_audio: false, tx_names: Vec::new(), check_updates: true,
         }
     }
 }
@@ -69,6 +71,7 @@ impl Config {
                 "card_channels" => c.card_channels = v.parse().ok().filter(|n| CARD_CHANNELS.contains(n)).unwrap_or(32),
                 "buffer" => c.buffer = v.parse().ok().filter(|n| BUFFERS.contains(n)).unwrap_or(128),
                 "sys_audio" => c.sys_audio = v == "1" || v == "true",
+                "check_updates" => c.check_updates = v != "0",
                 k => {
                     if let Some(Ok(i)) = k.strip_prefix("txname").map(str::parse::<usize>) {
                         if i < MAX_CH {
@@ -100,7 +103,7 @@ impl Config {
             "device={}\niface={}\nname={}\ntx_channels={}\nlatency_ms={}\nrate={}\n",
             line(&self.device), line(&self.iface), line(&self.name), self.tx_channels, self.latency_ms, self.rate
         );
-        t += &format!("card_channels={}\nbuffer={}\nsys_audio={}\n", self.card_channels, self.buffer, self.sys_audio as u8);
+        t += &format!("card_channels={}\nbuffer={}\nsys_audio={}\ncheck_updates={}\n", self.card_channels, self.buffer, self.sys_audio as u8, self.check_updates as u8);
         for (i, n) in self.tx_names.iter().enumerate().filter(|(_, n)| !n.trim().is_empty()) {
             t += &format!("txname{i}={}\n", line(n));
         }
@@ -254,6 +257,10 @@ pub struct Shared {
     pub ifaces: Mutex<Vec<NetIface>>,
     /// Maquinas AOIP vistas na rede (Controller), inclusive esta.
     pub nodes: Mutex<Vec<crate::routing::SeenNode>>,
+    /// Atualizacao pelo GitHub: situacao, e os pedidos do painel (procurar / instalar).
+    pub update: Mutex<crate::update::UpdateInfo>,
+    pub update_check: AtomicBool,
+    pub update_install: AtomicBool,
     pub status: Mutex<Status>,
     pub flows: Mutex<Vec<Flow>>,
     pub slot_active: Mutex<Vec<bool>>,
@@ -268,7 +275,8 @@ impl Shared {
         let peaks = || (0..MAX_CH).map(|_| AtomicU32::new(0)).collect();
         Self {
             config: Mutex::new(config), config_path, tx: MatrixCell::new(), rx: MatrixCell::new(),
-            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), nodes: Mutex::new(vec![]), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
+            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), nodes: Mutex::new(vec![]), update: Mutex::new(Default::default()),
+            update_check: AtomicBool::new(false), update_install: AtomicBool::new(false), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
             slot_active: Mutex::new(vec![false; RX_SLOTS]), in_peak: peaks(), rx_peak: peaks(),
             restart: AtomicBool::new(false), quit: AtomicBool::new(false),
         }
