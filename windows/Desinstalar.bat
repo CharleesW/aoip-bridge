@@ -7,6 +7,9 @@ if errorlevel 1 (
 )
 set "CLSID={BA273706-2FFA-4FAD-A237-B2BE6CA92823}"
 taskkill /IM aoip-bridge.exe /F >nul 2>&1
+taskkill /IM aoip-winvirtual.exe /F >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AoIP Virtual" /f >nul 2>&1
+del "%ProgramData%\Microsoft\Windows\Start Menu\Programs\AoIP Virtual.lnk" >nul 2>&1
 reg delete "HKLM\SOFTWARE\ASIO\AoIP Bridge ASIO" /f /reg:64 >nul 2>&1
 netsh advfirewall firewall delete rule name="AoIP Bridge - audio em rede" >nul 2>&1
 reg delete "HKLM\SOFTWARE\Classes\CLSID\%CLSID%" /f /reg:64 >nul 2>&1

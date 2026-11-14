@@ -634,6 +634,7 @@ pub fn start_network(
     };
 
     let aux_base = if cfg.name.trim().is_empty() { auto_name(&net::computer_name(), "") } else { name.clone() };
+    shared.status.lock().unwrap().aux_name = aux_flow_name(&aux_base);
     let network = Network { clock, tx_fifo, rx_fifos, net_tx, name, aux_base, group_base: base, flow_base, own };
     Ok((network, Box::new(capture), Box::new(playback)))
 }

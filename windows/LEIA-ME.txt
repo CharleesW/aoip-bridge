@@ -1,52 +1,56 @@
-AoIP Bridge para Windows (versao de teste 0.4.5)
+AoIP Bridge para Windows (versao de teste 0.5.0)
 ===============================================
 
-ATENCAO: versao de teste. O driver ASIO desta versao foi testado so em um simulador no
-Mac e NUNCA rodou dentro do REAPER nem de outro programa de audio no Windows. Ele pode
-falhar ou ate fechar o REAPER. Salve seus projetos antes e nao use em culto ou evento.
+ATENCAO: versao de teste. O AoIP Virtual e o driver ASIO desta versao foram testados so
+em simulador no Mac e ainda NAO rodaram no Windows. Podem falhar. Salve seus projetos
+antes e nao use em culto ou evento antes de testar.
 
 O QUE VEM NO PACOTE
-- Driver "AoIP Bridge ASIO": aparece na lista de drivers ASIO do REAPER (e de outros
-  programas de 64 bits) como uma placa de 32 entradas e 32 saidas a 48000 Hz. O que o
-  programa toca nas saidas vai para a rede; o que chega da rede aparece nas entradas.
-- Programa "AoIP Bridge" (aoip-bridge.exe): liga uma placa de audio de verdade a rede.
+- "AoIP Virtual" (aoip-winvirtual.exe): a placa virtual SEMPRE LIGADA. Inicia com o
+  Windows e fica com um icone perto do relogio. Cuida da rede o tempo todo (mesmo com o
+  REAPER fechado) e tem o painel em http://127.0.0.1:8788.
+  Clique no icone para:
+    - Canais: 2x2, 4x4, 8x8, 16x16, 32x32 ou 64x64
+    - Latencia: 64, 128, 256 ou 512 amostras
+    - Taxa: 44,1 kHz ou 48 kHz (a rede e sempre 48 kHz; 44,1 e convertido)
+    - Capturar som do Windows: o que o Windows estiver tocando vai para a rede num fluxo
+      a parte, fora da matriz, chamado "NOME-DO-PC - Saida de Audio" (2 canais)
+    - Iniciar com o Windows
+    - Abrir painel / Sair
+- Driver "AoIP Bridge ASIO": a placa AoIP no REAPER (e outros programas de 64 bits).
+  Ele so leva o audio entre o REAPER e o AoIP Virtual; se o AoIP Virtual estiver
+  fechado, o driver abre ele sozinho.
+- Programa "AoIP Bridge" (aoip-bridge.exe): liga uma placa de verdade (ex.: Ui24R) a rede.
 
 COMO INSTALAR
 1. Feche o REAPER. Extraia o ZIP inteiro para uma pasta (nao rode de dentro do ZIP).
-2. De dois cliques em "Instalar.bat" e aceite o pedido de administrador (ele e
-   necessario para registrar o driver ASIO).
+2. De dois cliques em "Instalar.bat" e aceite o pedido de administrador.
    - Se aparecer "O Windows protegeu o computador" (programa sem assinatura), clique em
      "Mais informacoes" e depois "Executar assim mesmo".
-3. Tudo fica em C:\Program Files\AoIP Bridge.
+3. Tudo fica em C:\Program Files\AoIP Bridge. O AoIP Virtual ja abre no fim da
+   instalacao (icone perto do relogio; pode estar escondido na setinha "^").
 
 COMO USAR NO REAPER
 1. Options > Preferences > Audio > Device.
-   Audio system: ASIO.  ASIO Driver: AoIP Bridge ASIO.  Sample rate: 48000.
-2. Na primeira vez o Firewall do Windows pergunta sobre o REAPER: clique em Permitir
-   (sem isso nada chega da rede).
-3. O botao "ASIO Configuration..." abre o painel do driver: http://127.0.0.1:8788
+   Audio system: ASIO.  ASIO Driver: AoIP Bridge ASIO.
+2. Os canais e a taxa sao os escolhidos no icone do AoIP Virtual. Se voce mudar la com o
+   REAPER aberto, o REAPER reabre a placa sozinho.
+3. Painel (icone > Abrir painel, ou "ASIO Configuration..." no REAPER):
    - "Enviar para a rede": as linhas "Entrada 1, 2..." sao as SAIDAS do REAPER.
-     Os fluxos enviados se chamam "ASIO : 1", "ASIO : 2"... (8 canais cada).
-     Por padrao vai 1 fluxo (saidas 1 a 8). Mude em Configuracao > Canais enviados.
-   - "Receber da rede": escolha um fluxo e ligue os canais; eles chegam nas ENTRADAS
-     do REAPER (Rede Entrada 1, 2...).
-   - Mudou algo em Configuracao? Vale na hora, com o REAPER aberto (a rede religa em ~1 s).
-4. No Dante Controller os fluxos enviados aparecem em azul (AES67). Veja "LIMITES".
+     Os fluxos enviados se chamam "NOME-DO-PC Virtual : 1", ": 2"... (8 canais cada).
+   - "Receber da rede": escolha os fluxos e ligue os canais; eles chegam nas ENTRADAS
+     do REAPER (AoIP Entrada 1, 2...).
+   - Mudou algo em Configuracao? Vale na hora (a rede religa em ~1 s).
+4. O Firewall do Windows e liberado pelo instalador (portas UDP 319, 320, 5004, 9875).
 
 LIMITES DESTA VERSAO (importante)
-- No Dante Controller o AoIP Bridge aparece so como TRANSMISSOR de fluxos AES67. Isso e
-  uma regra do Dante Controller: ele nao faz ligacoes para aparelhos que nao sao Dante.
-  Para o AoIP Bridge RECEBER de um aparelho Dante: no Dante Controller, ligue o
-  "AES67 Mode" do aparelho, crie nele um fluxo multicast AES67 (Device View > Create
-  Multicast Flow > AES67) e escolha esse fluxo no painel do AoIP Bridge, em
-  "Receber da rede".
+- O AoIP NAO aparece na lista de saidas de som do Windows (caixas/fones): isso exige um
+  driver de sistema assinado pela Microsoft. Para mandar o som do Windows para a rede,
+  use "Capturar som do Windows" no icone.
+- No Dante Controller o AoIP Bridge aparece so como TRANSMISSOR de fluxos AES67 (regra do
+  Dante Controller). As ligacoes entre os nossos programas sao feitas no painel.
 - So aparelhos Dante com "AES67 Mode" ligado conseguem ouvir os fluxos do AoIP Bridge.
-- So 48000 Hz. So programas de 64 bits.
-- Use cabo de rede. Por Wi-Fi o audio falha.
-
-AUTOTESTE DO PROGRAMA (placa de verdade)
-"Autoteste.bat" continua disponivel; veja as instrucoes na tela. O resultado fica em
-%USERPROFILE%\aoip-bridge-autoteste.log
+- So programas de 64 bits. Use cabo de rede: por Wi-Fi o audio falha.
 
 PARA REMOVER
 Feche o REAPER e rode "Desinstalar.bat" (em C:\Program Files\AoIP Bridge).

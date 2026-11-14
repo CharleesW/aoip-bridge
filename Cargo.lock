@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "aoip-asio"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "aoip-core",
  "aoip-engine",
@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "aoip-bridge"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "aoip-core",
  "aoip-engine",
@@ -52,11 +52,11 @@ dependencies = [
 
 [[package]]
 name = "aoip-core"
-version = "0.4.5"
+version = "0.5.0"
 
 [[package]]
 name = "aoip-engine"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "aoip-core",
  "libc",
@@ -66,10 +66,20 @@ dependencies = [
 
 [[package]]
 name = "aoip-virtual"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "aoip-core",
  "aoip-engine",
+]
+
+[[package]]
+name = "aoip-winvirtual"
+version = "0.5.0"
+dependencies = [
+ "aoip-core",
+ "aoip-engine",
+ "cpal",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

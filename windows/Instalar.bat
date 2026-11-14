@@ -12,6 +12,7 @@ set "DEST=%ProgramFiles%\AoIP Bridge"
 set "CLSID={BA273706-2FFA-4FAD-A237-B2BE6CA92823}"
 echo == AoIP Bridge: instalacao ==
 taskkill /IM aoip-bridge.exe /F >nul 2>&1
+taskkill /IM aoip-winvirtual.exe /F >nul 2>&1
 if not exist "%DEST%" mkdir "%DEST%"
 copy /Y "%~dp0aoip_asio.dll" "%DEST%\" >nul
 if errorlevel 1 (
@@ -22,6 +23,7 @@ if errorlevel 1 (
   exit /b 1
 )
 copy /Y "%~dp0aoip-bridge.exe" "%DEST%\" >nul
+copy /Y "%~dp0aoip-winvirtual.exe" "%DEST%\" >nul
 copy /Y "%~dp0Autoteste.bat" "%DEST%\" >nul
 copy /Y "%~dp0Desinstalar.bat" "%DEST%\" >nul
 copy /Y "%~dp0LEIA-ME.txt" "%DEST%\" >nul
@@ -50,13 +52,20 @@ rem Remove a instalacao antiga (versao 0.2, na pasta do usuario).
 if exist "%LOCALAPPDATA%\AoIP Bridge" rmdir /s /q "%LOCALAPPDATA%\AoIP Bridge"
 powershell -NoProfile -Command "$s=New-Object -ComObject WScript.Shell; foreach($d in @([Environment]::GetFolderPath('CommonDesktopDirectory'),[Environment]::GetFolderPath('CommonPrograms'))){ $l=$s.CreateShortcut((Join-Path $d 'AoIP Bridge.lnk')); $l.TargetPath=(Join-Path $env:ProgramFiles 'AoIP Bridge\aoip-bridge.exe'); $l.WorkingDirectory=(Join-Path $env:ProgramFiles 'AoIP Bridge'); $l.Save() }"
 del "%USERPROFILE%\Desktop\AoIP Bridge.lnk" >nul 2>&1
+rem AoIP Virtual: atalho no menu Iniciar e iniciar com o Windows (desliga pelo icone perto do relogio).
+powershell -NoProfile -Command "$s=New-Object -ComObject WScript.Shell; $l=$s.CreateShortcut((Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'AoIP Virtual.lnk')); $l.TargetPath=(Join-Path $env:ProgramFiles 'AoIP Bridge\aoip-winvirtual.exe'); $l.Save()"
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AoIP Virtual" /d "\"%DEST%\aoip-winvirtual.exe\" --tray" /f >nul
 
 echo.
+rem Abre o AoIP Virtual como usuario comum (nao como administrador).
+start "" explorer.exe "%DEST%\aoip-winvirtual.exe"
+
 echo INSTALACAO OK: %DEST%
 echo.
+echo O AoIP Virtual ja esta ligado: veja o icone perto do relogio (clique para os ajustes).
 echo O driver "AoIP Bridge ASIO" ja pode ser escolhido no REAPER:
 echo   Options ^> Preferences ^> Audio ^> Device ^> Audio system: ASIO ^> ASIO Driver: AoIP Bridge ASIO
-echo O botao "ASIO Configuration" abre o painel do driver (http://127.0.0.1:8788).
+echo O botao "ASIO Configuration" (ou o icone perto do relogio) abre o painel: http://127.0.0.1:8788
 echo O Firewall do Windows ja foi liberado para o audio em rede (portas UDP 319, 320, 5004 e 9875).
 echo.
 pause

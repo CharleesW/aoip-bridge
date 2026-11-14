@@ -1,11 +1,11 @@
 [workspace]
-members = ["core", "engine", "bridge", "asio-driver", "mac-driver"]
+members = ["core", "engine", "bridge", "asio-driver", "mac-driver", "win-virtual"]
 default-members = ["core"]
 resolver = "2"
 
 # Versao do produto: aparece no painel de todos os programas e no nome dos pacotes.
 [workspace.package]
-version = "0.4.5"
+version = "0.5.0"
 
 [profile.release]
 opt-level = 3

@@ -151,6 +151,16 @@ fn action(shared: &Shared, path: &str, query: &str) -> Result<(), String> {
             c.tx_channels = q("tx").and_then(|v| v.parse().ok()).unwrap_or(0);
             c.latency_ms = q("latency").and_then(|v| v.parse().ok()).unwrap_or(4).clamp(1, 100);
             c.rate = q("rate").and_then(|v| v.parse().ok()).unwrap_or(0);
+            // Placa virtual: so muda o que veio no pedido.
+            if let Some(n) = q("card").and_then(|v| v.parse().ok()).filter(|n| crate::state::CARD_CHANNELS.contains(n)) {
+                c.card_channels = n;
+            }
+            if let Some(n) = q("buffer").and_then(|v| v.parse().ok()).filter(|n| crate::state::BUFFERS.contains(n)) {
+                c.buffer = n;
+            }
+            if let Some(v) = q("sys") {
+                c.sys_audio = v == "1";
+            }
             drop(c);
             shared.save();
             shared.restart.store(true, Relaxed);
@@ -187,14 +197,14 @@ fn state_json(shared: &Shared) -> String {
     let active: Vec<String> = shared.slot_active.lock().unwrap().iter().map(|b| b.to_string()).collect();
     format!(
         "{{\"running\":{},\"error\":{},\"device\":{},\"iface\":{},\"ins\":{},\"outs\":{},\"ntx\":{},\"rate\":{},\"nrx\":{NET_RX},\
-         \"ptp\":{},\"gm\":{},\"gmIp\":{},\"gmName\":{},\"gmSelf\":{},\"name\":{},\"autoName\":{},\"ifaceLabel\":{},\"notice\":{},\"ifaces\":[{}],\
+         \"ptp\":{},\"gm\":{},\"gmIp\":{},\"gmName\":{},\"gmSelf\":{},\"name\":{},\"autoName\":{},\"ifaceLabel\":{},\"notice\":{},\"ifaces\":[{}],\"virtual\":{},\"auxName\":{},\
          \"txFill\":{},\"under\":{},\"over\":{},\
-         \"cfg\":{{\"device\":{},\"iface\":{},\"name\":{},\"tx\":{},\"latency\":{},\"rate\":{}}},\
+         \"cfg\":{{\"device\":{},\"iface\":{},\"name\":{},\"tx\":{},\"latency\":{},\"rate\":{},\"cardCh\":{},\"buffer\":{},\"sysAudio\":{}}},\
          \"devices\":[{}],\"flows\":[{}],\"slots\":[{}],\"active\":[{}],\"tx\":{},\"rx\":{},\"lvIn\":{},\"lvRx\":{}}}",
         st.running, json_str(&st.error), json_str(&st.device), json_str(&st.iface), st.ins, st.outs, st.net_tx, st.rate,
         st.ptp, json_str(&st.grandmaster), json_str(&st.gm_ip), json_str(&st.gm_name), st.gm_self,
-        json_str(&st.name), json_str(&st.auto_name), json_str(&st.iface_label), json_str(&st.notice), ifaces.join(","), st.tx_fill, st.underruns, st.overruns,
-        json_str(&cfg.device), json_str(&cfg.iface), json_str(&cfg.name), cfg.tx_channels, cfg.latency_ms, cfg.rate,
+        json_str(&st.name), json_str(&st.auto_name), json_str(&st.iface_label), json_str(&st.notice), ifaces.join(","), st.virtual_card, json_str(&st.aux_name), st.tx_fill, st.underruns, st.overruns,
+        json_str(&cfg.device), json_str(&cfg.iface), json_str(&cfg.name), cfg.tx_channels, cfg.latency_ms, cfg.rate, cfg.card_channels, cfg.buffer, cfg.sys_audio,
         devices.join(","), flows.join(","), slots.join(","), active.join(","),
         points(&shared.tx.snapshot()), points(&shared.rx.snapshot()),
         levels(take_peaks(&shared.in_peak, st.ins)), levels(take_peaks(&shared.rx_peak, NET_RX)),

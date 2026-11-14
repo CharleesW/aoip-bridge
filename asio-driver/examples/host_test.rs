@@ -1,7 +1,8 @@
 //! Faz o papel de um programa de audio (REAPER etc.) e exercita o driver pela mesma porta
 //! que o Windows usaria: fabrica COM -> init -> createBuffers -> start -> bufferSwitch.
-//! Roda em qualquer sistema. Use com AOIP_SELFTEST=1 e uma pasta HOME temporaria contendo
-//! `.aoip-asio.conf` com `rx0=ASIO : 1`, para o driver assinar o proprio fluxo.
+//! Roda em qualquer sistema. Este teste tambem faz o papel do programa AOIP (a placa
+//! virtual sempre ligada), assinando o proprio fluxo, para o tom tocado nas saidas 1-2
+//! voltar nas entradas 1-2 pela rede. Use com AOIP_SELFTEST=2 (nada sai para a rede).
 use aoip_asio::*;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed};
@@ -34,7 +35,25 @@ unsafe extern "C" fn rate_changed(_rate: f64) {}
 unsafe extern "C" fn message(_selector: i32, _value: i32, _message: *mut c_void, _opt: *mut f64) -> i32 { 0 }
 unsafe extern "C" fn switch_time_info(_p: *mut c_void, _index: i32, _direct: i32) -> *mut c_void { std::ptr::null_mut() }
 
+fn start_aoip_program() {
+    use aoip_core::state::{Config, Shared};
+    let path = std::env::temp_dir().join("aoip-host-test.conf");
+    let _ = std::fs::remove_file(&path);
+    let mut cfg = Config::default();
+    cfg.name = "ASIO".into();
+    cfg.name = "Teste".into();
+    cfg.card_channels = 16;
+    cfg.rx[0] = "Teste : 1".into();
+    let shared = std::sync::Arc::new(Shared::new(cfg, path));
+    let card = aoip_engine::virtual_card::VirtualCard::new(shared);
+    card.start();
+    let l = std::net::TcpListener::bind(("127.0.0.1", aoip_engine::local::PORT)).expect("porta 48790 livre");
+    aoip_engine::local::serve(card.clone(), l);
+    std::thread::spawn(move || loop { card.tick(); std::thread::sleep(std::time::Duration::from_millis(250)); });
+}
+
 fn main() {
+    start_aoip_program();
     unsafe {
         let mut factory: *mut c_void = std::ptr::null_mut();
         assert_eq!(DllGetClassObject(&CLSID, &IID_ICLASSFACTORY, &mut factory), 0, "fabrica");
@@ -57,7 +76,9 @@ fn main() {
         let (mut min, mut max, mut pref, mut gran) = (0, 0, 0, 0);
         assert_eq!((v.get_buffer_size)(d, &mut min, &mut max, &mut pref, &mut gran), ASE_OK);
         assert_eq!((v.can_sample_rate)(d, 48_000.0), ASE_OK);
-        assert_ne!((v.can_sample_rate)(d, 44_100.0), ASE_OK);
+        assert_eq!((v.can_sample_rate)(d, 44_100.0), ASE_OK);
+        assert_ne!((v.can_sample_rate)(d, 96_000.0), ASE_OK);
+        assert_eq!(ins, 16, "canais escolhidos no programa AOIP");
         println!("canais {ins}x{outs}, bloco {min}..{max} (preferido {pref})");
 
         let mut infos = [(1, 0), (1, 1), (0, 0), (0, 1)].map(|(is_input, channel_num)| AsioBufferInfo { is_input, channel_num, buffers: [std::ptr::null_mut(); 2] });

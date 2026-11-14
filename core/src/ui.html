@@ -108,6 +108,9 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s3);align-items:end}
 .form label{display:grid;gap:var(--s1);color:var(--text-2);font-size:12px}
 .form input,.form select{width:100%}
+.form input[type=checkbox]{width:auto;margin:0 6px 0 0;vertical-align:-2px}
+.form label.check{align-self:center}
+[hidden]{display:none!important}
 .bar{display:flex;gap:var(--s2);align-items:center;margin-bottom:var(--s3);flex-wrap:wrap}
 .bar .sp{flex:1}
 details summary{cursor:pointer;font-weight:600;font-size:16px}
@@ -204,11 +207,14 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
       <summary>Configuração</summary>
       <p class="sub" style="margin-top:8px">Mudanças aqui reiniciam o áudio por alguns segundos.</p>
       <div class="form">
-        <label>Placa de áudio<select id="fDev" aria-describedby="fDevMsg"></select><span class="msg" id="fDevMsg"></span></label>
+        <label id="lDev">Placa de áudio<select id="fDev" aria-describedby="fDevMsg"></select><span class="msg" id="fDevMsg"></span></label>
+        <label class="vonly" hidden>Canais da placa virtual (entradas e saídas)<select id="fCard"></select></label>
+        <label class="vonly" hidden>Latência da placa virtual (tamanho do bloco)<select id="fBuf"></select></label>
+        <label class="vonly winonly check" hidden><span><input type="checkbox" id="fSys">Capturar som do Windows</span><span class="msg" id="fSysMsg">Vai para a rede num fluxo à parte, fora da matriz.</span></label>
         <label>Placa de rede<select id="fIf" aria-describedby="fIfMsg"></select><span class="msg" id="fIfMsg">O IP é lido sozinho a cada vez que o programa abre.</span></label>
         <label>Nome que aparece na rede (Dante Controller)<input id="fName" maxlength="24" autocomplete="off" aria-describedby="fNameMsg"><span class="msg" id="fNameMsg"></span></label>
         <label>Canais enviados para a rede<select id="fTx"></select></label>
-        <label>Taxa de amostragem da placa<select id="fRate">
+        <label id="lRate">Taxa de amostragem da placa<select id="fRate">
           <option value="0">Automática: 48000 Hz se a placa aceitar</option>
           <option value="44100">44100 Hz (convertido para a rede)</option>
           <option value="48000">48000 Hz (igual à rede, sem conversão)</option>
@@ -254,6 +260,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const SLOT = 'ABCDEFGH';
+const OS = '{{SISTEMA}}';
 let S = null, sel = null, shape = {}, formTouched = false, offline = 0, restartUntil = 0, stopped = false;
 
 async function post(path, params) {
@@ -343,6 +350,18 @@ function renderForm() {
   $('fNameMsg').textContent = `Até 24 letras. Vazio: usa o nome do computador (“${S.autoName || '?'}”).`;
   $('fTx').innerHTML = [0, 2, 8, 16, 24, 32, 64].map(n => `<option value="${n}"${n === S.cfg.tx ? ' selected' : ''}>${n ? n : 'Todas as entradas da placa'}</option>`).join('');
   $('fLat').value = [2, 4, 8, 16].includes(S.cfg.latency) ? S.cfg.latency : 4;
+  // Placa virtual: escolhe os proprios canais, bloco e taxa (como no icone perto do relogio).
+  for (const el of document.querySelectorAll('.vonly')) el.hidden = !S.virtual || (el.classList.contains('winonly') && OS !== 'Windows');
+  $('lDev').hidden = !!S.virtual;
+  if (S.virtual) {
+    $('fCard').innerHTML = [2, 4, 8, 16, 32, 64].map(n => `<option value="${n}"${n === S.cfg.cardCh ? ' selected' : ''}>${n} x ${n}</option>`).join('');
+    const kHz = S.cfg.rate === 44100 ? 44.1 : 48;
+    $('fBuf').innerHTML = [64, 128, 256, 512].map(n => `<option value="${n}"${n === S.cfg.buffer ? ' selected' : ''}>${n} amostras (${(n / kHz).toFixed(1).replace('.', ',')} ms)</option>`).join('');
+    $('fSys').checked = !!S.cfg.sysAudio;
+    $('fSysMsg').textContent = `Vai para a rede num fluxo à parte, fora da matriz: “${S.auxName || 'este PC - Saida de Audio'}”.`;
+    for (const o of $('fRate').options) o.hidden = !['44100', '48000'].includes(o.value);
+    if (!['44100', '48000'].includes($('fRate').value)) $('fRate').value = '48000';
+  }
   $('fRate').value = [44100, 48000, 88200, 96000].includes(S.cfg.rate) ? S.cfg.rate : 0;
   if (!S.running) $('setupBox').open = true;
   validate(); // mensagens sempre de acordo com o que esta nos campos
@@ -547,7 +566,8 @@ $('fSave').onclick = async () => {
   if (!validate()) return $('fDev').focus();
   const btn = $('fSave');
   btn.disabled = true; btn.textContent = 'Salvando…';
-  const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value});
+  const extra = S.virtual ? {card: $('fCard').value, buffer: $('fBuf').value, sys: $('fSys').checked ? '1' : '0'} : {};
+  const ok = await post('/api/setup', {device: $('fDev').value, iface: $('fIf').value.trim(), name: $('fName').value.trim(), tx: $('fTx').value, latency: $('fLat').value, rate: $('fRate').value, ...extra});
   btn.disabled = false; btn.textContent = 'Salvar e iniciar';
   if (ok) { formTouched = false; $('setupBox').open = false; setPill('info', 'reiniciando…'); shape = {}; restartUntil = Date.now() + 20000; }
 };

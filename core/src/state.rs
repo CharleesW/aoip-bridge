@@ -211,6 +211,10 @@ pub struct Status {
     pub iface_label: String,
     /// Aviso que nao impede o funcionamento (ex.: voltou para a rede automatica).
     pub notice: String,
+    /// Este painel e o da placa virtual (canais, bloco e taxa escolhidos aqui).
+    pub virtual_card: bool,
+    /// Nome do fluxo a parte com o som do computador.
+    pub aux_name: String,
     pub tx_fill: usize,
     pub underruns: u64,
     pub overruns: u64,

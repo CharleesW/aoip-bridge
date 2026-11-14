@@ -43,6 +43,9 @@ fn silent() -> (Capture, Playback) {
 impl VirtualCard {
     pub fn new(shared: Arc<Shared>) -> Arc<Self> {
         let (capture, playback) = silent();
+        shared.status.lock().unwrap().virtual_card = true;
+        let ch = shared.config.lock().unwrap().card_channels;
+        *shared.devices.lock().unwrap() = vec![(CARD_NAME.to_string(), ch, ch)];
         {
             let mut c = shared.config.lock().unwrap();
             c.device = CARD_NAME.into();
@@ -68,6 +71,7 @@ impl VirtualCard {
             c.clone()
         };
         let (ch, rate) = (cfg.card_channels, cfg.rate);
+        *self.shared.devices.lock().unwrap() = vec![(CARD_NAME.to_string(), ch, ch)];
         let old = self.run.lock().unwrap().network.take();
         if let Some(n) = old {
             n.shutdown();

@@ -1,30 +1,31 @@
 //! Driver ASIO virtual "AoIP Bridge ASIO" (Windows, 64 bits).
 //!
-//! O programa de audio (REAPER etc.) carrega esta DLL como se fosse uma placa de 32x32
-//! canais a 48 kHz. O que o programa toca nas saidas vai para a rede (fluxos AES67); os
-//! fluxos assinados da rede chegam nas entradas. A rede e o painel sao os mesmos do
-//! `aoip-bridge` (crate `aoip-engine`); o painel deste driver fica em http://127.0.0.1:8788.
+//! O programa de audio (REAPER etc.) carrega esta DLL como uma placa de 2 a 64 canais, a
+//! 44,1 ou 48 kHz. A rede NAO fica aqui: fica no programa AOIP (aoip-winvirtual.exe), que
+//! esta sempre ligado, com o icone perto do relogio e o painel em http://127.0.0.1:8788. Este
+//! driver so leva o audio entre o programa de audio e ele (veja `aoip_engine::local`), e
+//! abre o programa AOIP se ele nao estiver aberto.
 //!
 //! O codigo compila em qualquer sistema para que `examples/host_test.rs` possa exercitar o
 //! driver como um programa de audio faria; so o registro e o carregamento sao do Windows.
 #![allow(non_snake_case, clippy::missing_safety_doc)]
 
-use aoip_core::state::Shared;
-use aoip_core::ui;
-use aoip_engine::{open_browser, realtime_thread_for, refresh_ifaces, refresh_status, report_stats, resolve_iface, selftest, start_network, Capture, Network, Playback};
+use aoip_engine::local::{self, CardClient, CardInfo};
+use aoip_engine::{open_browser, realtime_thread_for};
 use std::ffi::c_void;
-use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 pub const DRIVER_NAME: &str = "AoIP Bridge ASIO";
-pub const CHANNELS: usize = 32;
-pub const RATE: u32 = 48_000;
 pub const PANEL_PORT: u16 = 8788;
-const BUF_MIN: i32 = 64;
+/// Nome do programa AOIP, na mesma pasta desta DLL.
+pub const HELPER_EXE: &str = "aoip-winvirtual.exe";
+const BUF_MIN: i32 = 32;
 const BUF_MAX: i32 = 2048;
-const BUF_PREFERRED: i32 = 256;
+/// Pedido ao programa de audio para reabrir a placa (formato mudou).
+const K_ASIO_SELECTOR_SUPPORTED: i32 = 1;
+const K_ASIO_RESET_REQUEST: i32 = 3;
 
 // ---------------------------------------------------------------- tipos COM / ASIO
 
@@ -146,141 +147,61 @@ pub struct Factory {
 }
 unsafe impl Sync for Factory {}
 
-// ---------------------------------------------------------------- motor de rede (um por processo)
+// ---------------------------------------------------------------- ligacao com o programa AOIP
 
-struct Engine {
-    shared: Arc<Shared>,
-    capture: Mutex<Capture>,
-    playback: Mutex<Playback>,
+/// Formato atual da placa (vem do programa AOIP; 32x32 a 48 kHz ate a primeira resposta).
+static INFO: Mutex<CardInfo> = Mutex::new(CardInfo { channels: 32, rate: 48_000, buffer: 128, latency: 192, generation: 0 });
+
+fn info() -> CardInfo {
+    *INFO.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-static ENGINE: OnceLock<Engine> = OnceLock::new();
-static STARTING: Mutex<()> = Mutex::new(());
-
-/// Liga a rede na primeira vez. Uma falha nao fica guardada: a proxima tentativa comeca do zero
-/// (por exemplo, depois de fechar o outro programa que estava com o driver aberto).
-fn engine() -> Result<&'static Engine, String> {
-    let _guard = STARTING.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(e) = ENGINE.get() {
-        return Ok(e);
+/// Pasta desta DLL (onde tambem fica o programa AOIP).
+fn dll_dir() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    unsafe {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetModuleHandleExW(flags: u32, address: *const c_void, module: *mut *mut c_void) -> i32;
+            fn GetModuleFileNameW(module: *mut c_void, name: *mut u16, size: u32) -> u32;
+        }
+        const FROM_ADDRESS_NO_REF: u32 = 0x4 | 0x2;
+        let mut module = std::ptr::null_mut();
+        if GetModuleHandleExW(FROM_ADDRESS_NO_REF, dll_dir as *const c_void, &mut module) == 0 {
+            return None;
+        }
+        let mut buf = vec![0u16; 1024];
+        let n = GetModuleFileNameW(module, buf.as_mut_ptr(), buf.len() as u32) as usize;
+        let path = std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n]));
+        return path.parent().map(|p| p.to_path_buf());
     }
-    let e = start_engine().map_err(|e| e.to_string())?;
-    Ok(ENGINE.get_or_init(|| e))
+    #[cfg(not(windows))]
+    std::env::var_os("AOIP_HELPER_DIR").map(std::path::PathBuf::from)
 }
 
-fn start_engine() -> Result<Engine, Box<dyn std::error::Error>> {
-    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).unwrap_or_default();
-    let path = std::path::Path::new(&home).join(".aoip-asio.conf");
-    let first_run = !path.exists();
-    let shared = Arc::new(Shared::load(path));
-    {
-        let mut c = shared.config.lock().unwrap();
-        c.device = DRIVER_NAME.into();
-        c.rate = RATE;
-        if first_run {
-            c.tx_channels = 0; // todos os 32 canais, como uma placa 32x32
+/// Garante o programa AOIP aberto (abre se preciso) e le o formato da placa.
+fn connect_helper() -> Result<CardInfo, String> {
+    if let Ok(i) = local::query() {
+        *INFO.lock().unwrap_or_else(|p| p.into_inner()) = i;
+        return Ok(i);
+    }
+    static LAUNCHED: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut launched = LAUNCHED.lock().unwrap_or_else(|p| p.into_inner());
+    if launched.map_or(true, |t| t.elapsed() > Duration::from_secs(10)) {
+        if let Some(exe) = dll_dir().map(|d| d.join(HELPER_EXE)).filter(|p| p.exists()) {
+            let _ = std::process::Command::new(exe).arg("--tray").spawn();
+            *launched = Some(Instant::now());
         }
     }
-    *shared.devices.lock().unwrap() = vec![(DRIVER_NAME.to_string(), CHANNELS, CHANNELS)];
-    shared.status.lock().unwrap().auto_name = aoip_core::state::auto_name(&aoip_engine::net::computer_name(), " Virtual");
-    // A porta do painel tambem serve de trava: so um programa por vez pode usar o driver.
-    // Dois programas com o driver aberto seriam dois remetentes no mesmo fluxo de rede.
-    // Ao reabrir o programa de audio, o anterior pode ainda estar terminando de fechar:
-    // espera ate 5 s pela porta antes de dizer que ha outro programa usando o driver.
-    let listener = (0..25)
-        .find_map(|_| TcpListener::bind(("127.0.0.1", PANEL_PORT)).ok().or_else(|| {
-            std::thread::sleep(Duration::from_millis(200));
-            None
-        }))
-        .ok_or("O AoIP Bridge ASIO ja esta aberto em outro programa. Feche o outro programa e tente de novo.")?;
-    let cfg = shared.config.lock().unwrap().clone();
-    let started = resolve_iface(&shared, &cfg).and_then(|iface| start_network(&shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
-    // O painel abre mesmo se a rede falhar: e nele que se corrige a placa de rede.
-    ui::serve(shared.clone(), listener);
-    {
-        let mut st = shared.status.lock().unwrap();
-        st.running = true; // a placa virtual em si funciona; o que pode faltar e a rede
-        st.device = DRIVER_NAME.into();
-        (st.ins, st.outs, st.rate) = (CHANNELS, CHANNELS, RATE);
-    }
-    match started {
-        Ok((network, capture, playback)) => {
-            shared.status.lock().unwrap().net_tx = network.net_tx;
-            housekeeping(shared.clone(), Some(network));
-            Ok(Engine { shared, capture: Mutex::new(capture), playback: Mutex::new(playback) })
-        }
-        Err(e) => {
-            // Sem rede, o programa de audio continua com a placa (em silencio) em vez de
-            // dizer "indisponivel", e o painel abre sozinho mostrando o motivo.
-            shared.status.lock().unwrap().error = format!(
-                "A rede nao abriu: {e} Escolha a placa de rede em Configuracao e salve (nao precisa fechar o programa de audio)."
-            );
-            housekeeping(shared.clone(), None);
-            open_browser(&format!("http://127.0.0.1:{PANEL_PORT}"));
-            let capture: Capture = Box::new(|_: &[f32]| {});
-            let playback: Playback = Box::new(|out: &mut [f32]| out.fill(0.0));
-            Ok(Engine { shared, capture: Mutex::new(capture), playback: Mutex::new(playback) })
+    drop(launched);
+    for _ in 0..25 {
+        std::thread::sleep(Duration::from_millis(200));
+        if let Ok(i) = local::query() {
+            *INFO.lock().unwrap_or_else(|p| p.into_inner()) = i;
+            return Ok(i);
         }
     }
-}
-
-/// Mantem o painel atualizado e aplica a configuracao salva no painel: a rede e religada
-/// por dentro, com o programa de audio aberto e tocando (sem precisar fecha-lo).
-fn housekeeping(shared: Arc<Shared>, network: Option<Network>) {
-    std::thread::spawn(move || {
-        let mut network = network;
-        let mut ticks = 0u32;
-        loop {
-            std::thread::sleep(Duration::from_millis(250));
-            ticks += 1;
-            match &network {
-                Some(n) => {
-                    refresh_status(&shared, n);
-                    if selftest() && ticks % 20 == 0 {
-                        report_stats(&shared, n);
-                    }
-                }
-                None if ticks % 20 == 0 => refresh_ifaces(&shared),
-                None => {}
-            }
-            if shared.restart.swap(false, Relaxed) {
-                network = restart_network(&shared, network.take());
-            }
-            shared.quit.store(false, Relaxed); // quem encerra o driver e o programa de audio
-        }
-    });
-}
-
-/// Desliga a rede atual e liga outra com a configuracao salva, trocando por dentro o que a
-/// placa entrega e recebe. O programa de audio nao percebe (ouve silencio por ~1 s).
-fn restart_network(shared: &Arc<Shared>, old: Option<Network>) -> Option<Network> {
-    if let Some(n) = old {
-        n.shutdown();
-        std::thread::sleep(Duration::from_millis(700)); // as threads da rede antiga terminam
-    }
-    let cfg = {
-        let mut c = shared.config.lock().unwrap();
-        c.device = DRIVER_NAME.into();
-        c.rate = RATE;
-        c.clone()
-    };
-    shared.status.lock().unwrap().error.clear();
-    let started = resolve_iface(shared, &cfg).and_then(|iface| start_network(shared, &cfg, iface, CHANNELS, CHANNELS, RATE, 64));
-    let Some(engine) = ENGINE.get() else { return started.ok().map(|x| x.0) };
-    match started {
-        Ok((network, capture, playback)) => {
-            *engine.capture.lock().unwrap_or_else(|p| p.into_inner()) = capture;
-            *engine.playback.lock().unwrap_or_else(|p| p.into_inner()) = playback;
-            shared.status.lock().unwrap().net_tx = network.net_tx;
-            Some(network)
-        }
-        Err(e) => {
-            *engine.capture.lock().unwrap_or_else(|p| p.into_inner()) = Box::new(|_: &[f32]| {});
-            *engine.playback.lock().unwrap_or_else(|p| p.into_inner()) = Box::new(|out: &mut [f32]| out.fill(0.0));
-            shared.status.lock().unwrap().error = format!("A rede nao abriu: {e} Escolha a placa de rede em Configuracao e salve de novo.");
-            None
-        }
-    }
+    Err("O programa AoIP Virtual nao esta aberto. Abra \"AoIP Virtual\" no menu Iniciar (ou reinstale) e tente de novo.".into())
 }
 
 // ---------------------------------------------------------------- estado do driver
@@ -290,15 +211,17 @@ type Halves = [Box<[f32]>; 2];
 #[derive(Default)]
 struct State {
     buffer_frames: usize,
+    channels: usize,
     ins: Vec<Option<Halves>>,
     outs: Vec<Option<Halves>>,
     callbacks: usize, // *const AsioCallbacks
     error: String,
+    client: Option<CardClient>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
-    buffer_frames: 0, ins: Vec::new(), outs: Vec::new(), callbacks: 0, error: String::new(), thread: None,
+    buffer_frames: 0, channels: 0, ins: Vec::new(), outs: Vec::new(), callbacks: 0, error: String::new(), client: None, thread: None,
 });
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static POSITION: AtomicU64 = AtomicU64::new(0);
@@ -344,41 +267,74 @@ fn stop_audio() {
     }
 }
 
-/// A "placa": a cada bloco entrega ao programa o que chegou da rede, chama o programa e
-/// manda para a rede o que ele tocou.
-fn audio_thread(frames: usize, ins: Vec<Option<[usize; 2]>>, outs: Vec<Option<[usize; 2]>>, callbacks: usize) {
-    let Ok(engine) = engine() else { return };
+/// Pede ao programa de audio para reabrir a placa (o formato mudou no programa AOIP).
+unsafe fn request_reset(callbacks: *const AsioCallbacks) {
+    let cb = &*callbacks;
+    if (cb.asio_message)(K_ASIO_SELECTOR_SUPPORTED, K_ASIO_RESET_REQUEST, std::ptr::null_mut(), std::ptr::null_mut()) != 0 {
+        (cb.asio_message)(K_ASIO_RESET_REQUEST, 0, std::ptr::null_mut(), std::ptr::null_mut());
+    }
+}
+
+/// A "placa": a cada bloco troca com o programa AOIP (vai o que o programa de audio tocou,
+/// volta o que chegou da rede) e chama o programa de audio. O ritmo e deste relogio.
+fn audio_thread(frames: usize, ch: usize, ins: Vec<Option<[usize; 2]>>, outs: Vec<Option<[usize; 2]>>, callbacks: usize, mut client: Option<CardClient>) {
     let callbacks = callbacks as *const AsioCallbacks;
-    let period = Duration::from_nanos(frames as u64 * 1_000_000_000 / RATE as u64);
+    let rate = info().rate.max(8000);
+    let period = Duration::from_nanos(frames as u64 * 1_000_000_000 / rate as u64);
     realtime_thread_for(period, period / 2);
-    let mut from_net = vec![0f32; frames * CHANNELS];
-    let mut to_net = vec![0f32; frames * CHANNELS];
-    let (mut index, mut next) = (0usize, Instant::now() + period);
+    let mut from_net = vec![0f32; frames * ch];
+    let mut to_net = vec![0f32; frames * ch];
+    let generation = client.as_ref().map(|c| c.info.generation).unwrap_or(0);
+    let (mut index, mut next, mut last_try, mut reset_sent) = (0usize, Instant::now() + period, Instant::now(), false);
     POSITION.store(0, Relaxed);
     while RUNNING.load(Relaxed) {
-        // rede -> entradas do programa
-        (engine.playback.lock().unwrap_or_else(|p| p.into_inner()))(&mut from_net);
+        // programa AOIP: manda o bloco anterior, recebe o da rede
+        from_net.fill(0.0);
+        if let Some(c) = client.as_mut() {
+            match c.exchange(&to_net, &mut from_net, ch) {
+                Ok(g) if g != generation && !reset_sent => {
+                    reset_sent = true;
+                    unsafe { request_reset(callbacks) };
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    client = None; // caiu: segue em silencio e tenta de novo
+                    state().error = "Perdi a ligacao com o programa AoIP Virtual; tentando de novo.".into();
+                }
+            }
+        } else if last_try.elapsed() > Duration::from_secs(1) {
+            last_try = Instant::now();
+            if let Ok(c) = CardClient::connect() {
+                if c.info.channels != ch || c.info.rate != rate {
+                    if !reset_sent {
+                        reset_sent = true;
+                        unsafe { request_reset(callbacks) };
+                    }
+                } else {
+                    state().error.clear();
+                    client = Some(c);
+                }
+            }
+        }
         for (c, halves) in ins.iter().enumerate() {
             if let Some(h) = halves {
                 let buf = unsafe { std::slice::from_raw_parts_mut(h[index] as *mut f32, frames) };
                 for (f, s) in buf.iter_mut().enumerate() {
-                    *s = from_net[f * CHANNELS + c];
+                    *s = from_net[f * ch + c];
                 }
             }
         }
         STAMP_NS.store(system_ns(), Relaxed);
         unsafe { ((*callbacks).buffer_switch)(index as i32, 0) };
-        // saidas do programa -> rede
         to_net.fill(0.0);
         for (c, halves) in outs.iter().enumerate() {
             if let Some(h) = halves {
                 let buf = unsafe { std::slice::from_raw_parts(h[index] as *const f32, frames) };
                 for (f, s) in buf.iter().enumerate() {
-                    to_net[f * CHANNELS + c] = *s;
+                    to_net[f * ch + c] = *s;
                 }
             }
         }
-        (engine.capture.lock().unwrap_or_else(|p| p.into_inner()))(&to_net);
         POSITION.fetch_add(frames as u64, Relaxed);
         index ^= 1;
 
@@ -431,21 +387,12 @@ unsafe extern "system" fn release(this: *mut Driver) -> u32 {
 }
 
 unsafe extern "system" fn init(_this: *mut Driver, _sys_handle: *mut c_void) -> i32 {
-    // A rede so liga em createBuffers. Programas que abrem o driver so para perguntar quantos
-    // canais ele tem (a lista de placas do proprio AoIP Bridge, por exemplo) nao devem colocar
-    // um segundo remetente, mudo, no mesmo fluxo.
-    1
-}
-
-fn ensure_engine() -> bool {
-    let result = std::panic::catch_unwind(engine).unwrap_or_else(|_| Err("erro interno ao iniciar a rede".into()));
-    match result {
-        Ok(_) => true,
-        Err(e) => {
-            state().error = if e.is_empty() { "Nao consegui iniciar a rede.".into() } else { e };
-            false
-        }
+    // Abre o programa AOIP se preciso e le o formato. Mesmo sem ele a placa aparece (a
+    // ligacao e tentada de novo ao abrir o audio).
+    if let Err(e) = connect_helper() {
+        state().error = e;
     }
+    1
 }
 
 unsafe extern "system" fn get_driver_name(_this: *mut Driver, name: *mut u8) {
@@ -453,7 +400,7 @@ unsafe extern "system" fn get_driver_name(_this: *mut Driver, name: *mut u8) {
 }
 
 unsafe extern "system" fn get_driver_version(_this: *mut Driver) -> i32 {
-    2
+    3
 }
 
 unsafe extern "system" fn get_error_message(_this: *mut Driver, text: *mut u8) {
@@ -471,9 +418,9 @@ unsafe extern "system" fn start(_this: *mut Driver) -> AsioError {
     let ptrs = |v: &Vec<Option<Halves>>| -> Vec<Option<[usize; 2]>> {
         v.iter().map(|h| h.as_ref().map(|h| [h[0].as_ptr() as usize, h[1].as_ptr() as usize])).collect()
     };
-    let (frames, ins, outs, callbacks) = (st.buffer_frames, ptrs(&st.ins), ptrs(&st.outs), st.callbacks);
+    let (frames, ch, ins, outs, callbacks, client) = (st.buffer_frames, st.channels, ptrs(&st.ins), ptrs(&st.outs), st.callbacks, st.client.take());
     RUNNING.store(true, Relaxed);
-    st.thread = Some(std::thread::spawn(move || audio_thread(frames, ins, outs, callbacks)));
+    st.thread = Some(std::thread::spawn(move || audio_thread(frames, ch, ins, outs, callbacks, client)));
     ASE_OK
 }
 
@@ -483,40 +430,53 @@ unsafe extern "system" fn stop(_this: *mut Driver) -> AsioError {
 }
 
 unsafe extern "system" fn get_channels(_this: *mut Driver, ins: *mut i32, outs: *mut i32) -> AsioError {
-    *ins = CHANNELS as i32;
-    *outs = CHANNELS as i32;
+    let ch = info().channels as i32;
+    *ins = ch;
+    *outs = ch;
     ASE_OK
 }
 
 unsafe extern "system" fn get_latencies(_this: *mut Driver, input: *mut i32, output: *mut i32) -> AsioError {
-    // um bloco do programa + a fila de rede (folga configurada + um bloco)
-    let frames = state().buffer_frames.max(BUF_PREFERRED as usize) as i32;
-    let running = ENGINE.get();
-    let extra = running.map(|e| e.shared.config.lock().unwrap().latency_ms as i32 * RATE as i32 / 1000).unwrap_or(192);
-    *input = frames * 2 + extra;
-    *output = frames * 2 + extra;
+    // um bloco do programa + um bloco da ligacao local + a folga da rede
+    let i = info();
+    let frames = state().buffer_frames.max(i.buffer) as i32;
+    *input = frames * 2 + i.latency as i32;
+    *output = frames * 2 + i.latency as i32;
     ASE_OK
 }
 
 unsafe extern "system" fn get_buffer_size(_this: *mut Driver, min: *mut i32, max: *mut i32, preferred: *mut i32, granularity: *mut i32) -> AsioError {
     *min = BUF_MIN;
     *max = BUF_MAX;
-    *preferred = BUF_PREFERRED;
+    *preferred = info().buffer as i32;
     *granularity = -1; // potencias de 2
     ASE_OK
 }
 
 unsafe extern "system" fn can_sample_rate(_this: *mut Driver, rate: f64) -> AsioError {
-    if rate == RATE as f64 { ASE_OK } else { ASE_NO_CLOCK }
+    if rate == 44_100.0 || rate == 48_000.0 { ASE_OK } else { ASE_NO_CLOCK }
 }
 
 unsafe extern "system" fn get_sample_rate(_this: *mut Driver, rate: *mut f64) -> AsioError {
-    *rate = RATE as f64;
+    *rate = info().rate as f64;
     ASE_OK
 }
 
 unsafe extern "system" fn set_sample_rate(this: *mut Driver, rate: f64) -> AsioError {
-    can_sample_rate(this, rate)
+    if can_sample_rate(this, rate) != ASE_OK {
+        return ASE_NO_CLOCK;
+    }
+    if rate as u32 == info().rate {
+        return ASE_OK;
+    }
+    // O programa de audio pediu outra taxa: o programa AOIP religa a rede nela.
+    match local::set_rate(rate as u32) {
+        Ok(i) => {
+            *INFO.lock().unwrap_or_else(|p| p.into_inner()) = i;
+            ASE_OK
+        }
+        Err(_) => ASE_NO_CLOCK,
+    }
 }
 
 unsafe extern "system" fn get_clock_sources(_this: *mut Driver, clocks: *mut AsioClockSource, count: *mut i32) -> AsioError {
@@ -541,9 +501,9 @@ unsafe extern "system" fn get_sample_position(_this: *mut Driver, pos: *mut Asio
     ASE_OK
 }
 
-unsafe extern "system" fn get_channel_info(_this: *mut Driver, info: *mut AsioChannelInfo) -> AsioError {
-    let i = &mut *info;
-    if i.channel < 0 || i.channel as usize >= CHANNELS {
+unsafe extern "system" fn get_channel_info(_this: *mut Driver, info_out: *mut AsioChannelInfo) -> AsioError {
+    let i = &mut *info_out;
+    if i.channel < 0 || i.channel as usize >= info().channels {
         return ASE_INVALID_PARAMETER;
     }
     let st = state();
@@ -551,7 +511,7 @@ unsafe extern "system" fn get_channel_info(_this: *mut Driver, info: *mut AsioCh
     i.is_active = list.get(i.channel as usize).is_some_and(|h| h.is_some()) as i32;
     i.channel_group = 0;
     i.sample_type = SAMPLE_FLOAT32;
-    let name = format!("{} {}", if i.is_input != 0 { "Rede Entrada" } else { "Rede Saida" }, i.channel + 1);
+    let name = format!("{} {}", if i.is_input != 0 { "AoIP Entrada" } else { "AoIP Saida" }, i.channel + 1);
     copy_name(i.name.as_mut_ptr(), 32, &name);
     ASE_OK
 }
@@ -561,11 +521,23 @@ unsafe extern "system" fn create_buffers(this: *mut Driver, infos: *mut AsioBuff
         return ASE_INVALID_PARAMETER;
     }
     dispose_buffers(this);
-    if !ensure_engine() {
-        return ASE_NOT_PRESENT;
+    // Ocupa a placa no programa AOIP. Ocupada por outro programa de audio: "indisponivel".
+    // Programa AOIP fechado: abre a placa mesmo assim (silencio) e liga quando ele abrir.
+    let _ = connect_helper();
+    let client = match CardClient::connect() {
+        Ok(c) => Some(c),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            state().error = "A placa AoIP ja esta aberta em outro programa de audio. Feche o outro programa e tente de novo.".into();
+            return ASE_NOT_PRESENT;
+        }
+        Err(_) => None,
+    };
+    let ch = client.as_ref().map(|c| c.info.channels).unwrap_or_else(|| info().channels);
+    if let Some(c) = &client {
+        *INFO.lock().unwrap_or_else(|p| p.into_inner()) = c.info;
     }
     let infos = std::slice::from_raw_parts_mut(infos, count as usize);
-    if infos.iter().any(|i| i.channel_num < 0 || i.channel_num as usize >= CHANNELS) {
+    if infos.iter().any(|i| i.channel_num < 0 || i.channel_num as usize >= ch) {
         return ASE_INVALID_PARAMETER;
     }
     let made = std::panic::catch_unwind(|| vec![0f32; frames as usize].into_boxed_slice());
@@ -573,8 +545,8 @@ unsafe extern "system" fn create_buffers(this: *mut Driver, infos: *mut AsioBuff
         return ASE_NO_MEMORY;
     }
     let mut st = state();
-    st.ins = (0..CHANNELS).map(|_| None).collect();
-    st.outs = (0..CHANNELS).map(|_| None).collect();
+    st.ins = (0..ch).map(|_| None).collect();
+    st.outs = (0..ch).map(|_| None).collect();
     for info in infos.iter_mut() {
         let mut halves: Halves = [vec![0f32; frames as usize].into_boxed_slice(), vec![0f32; frames as usize].into_boxed_slice()];
         info.buffers = [halves[0].as_mut_ptr() as *mut c_void, halves[1].as_mut_ptr() as *mut c_void];
@@ -582,7 +554,12 @@ unsafe extern "system" fn create_buffers(this: *mut Driver, infos: *mut AsioBuff
         list[info.channel_num as usize] = Some(halves);
     }
     st.buffer_frames = frames as usize;
+    st.channels = ch;
     st.callbacks = callbacks as usize;
+    st.client = client;
+    if st.client.is_some() {
+        st.error.clear();
+    }
     ASE_OK
 }
 
@@ -593,6 +570,7 @@ unsafe extern "system" fn dispose_buffers(_this: *mut Driver) -> AsioError {
     st.outs.clear();
     st.buffer_frames = 0;
     st.callbacks = 0;
+    st.client = None; // solta a placa no programa AOIP
     ASE_OK
 }
 
