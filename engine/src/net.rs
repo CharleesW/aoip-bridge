@@ -14,14 +14,15 @@ pub fn listener(group: Ipv4Addr, port: u16, iface: Ipv4Addr) -> io::Result<UdpSo
     Ok(s.into())
 }
 
-/// `local_only` (autoteste): TTL 0 e loop ligado, os pacotes voltam para este
-/// computador e nunca saem para a rede.
+/// `local_only` (autoteste): TTL 0, os pacotes nunca saem para a rede. O "loop" fica sempre
+/// ligado: outro programa deste mesmo computador (ex.: o AoIP Bridge com a mesa e a placa
+/// virtual) precisa ouvir o relogio e os fluxos deste. Os proprios ecos sao descartados.
 pub fn sender(iface: Ipv4Addr, local_only: bool) -> io::Result<UdpSocket> {
     let s = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     s.bind(&SocketAddrV4::new(iface, 0).into())?;
     s.set_multicast_if_v4(&iface)?;
     s.set_multicast_ttl_v4(if local_only { 0 } else { 16 })?;
-    s.set_multicast_loop_v4(local_only)?;
+    s.set_multicast_loop_v4(true)?;
     // DSCP EF (46) para audio, como recomenda o AES67. Falha e ignorada
     // (o Windows so marca DSCP via politica de QoS).
     let _ = s.set_tos(46 << 2);

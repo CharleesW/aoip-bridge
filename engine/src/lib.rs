@@ -1,7 +1,9 @@
 //! Motor de rede do AoIP Bridge: relogio PTP, envio e recepcao de fluxos AES67 e as duas
 //! pontas de audio (`Capture` e `Playback`) que a "placa" alimenta. A placa pode ser uma
 //! placa de verdade (programa `aoip-bridge`, via cpal) ou o driver ASIO virtual.
+pub mod local;
 pub mod net;
+pub mod virtual_card;
 
 use aoip_core::state::{auto_name, choose_iface, device_of_flow, note_peaks, Config, Flow, Shared, NET_RX, RX_SLOTS};
 use aoip_core::{matrix::Matrix, ptp, resample::DriftFifo, rtp, sap, sdp::Session};
@@ -13,6 +15,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
+/// Nomes dos fluxos que este programa envia (para nao aparecerem na lista de recepcao).
+type OwnFlows = Arc<Mutex<Vec<String>>>;
 pub type Fifo = Arc<Mutex<DriftFifo>>;
 
 /// Autoteste (variavel de ambiente AOIP_SELFTEST=1): sem placa com sinal, sem relogio
@@ -240,7 +244,7 @@ struct TxFlow {
 }
 
 /// Empacota 1 ms de audio por vez, no ritmo do relogio PTP, e anuncia via SAP.
-fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Addr) -> Res<()> {
+fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Addr, ssrc_salt: u32) -> Res<()> {
     let sock = net::sender(iface, selftest())?;
     let ch = fifo.lock().unwrap().channels();
     std::thread::spawn(move || {
@@ -249,7 +253,7 @@ fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Ad
         let mut part = Vec::new();
         let mut pkt = Vec::new();
         let (mut seq, mut next, mut last_sap) = (0u16, 0u128, None::<Instant>);
-        let ssrc = u32::from(iface) ^ 0x4145_5336;
+        let ssrc = u32::from(iface) ^ 0x4145_5336 ^ ssrc_salt;
         if !realtime_thread() {
             eprintln!("aviso: sem prioridade de tempo real no envio; pode haver falhas no audio.");
         }
@@ -302,7 +306,7 @@ fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Ad
 }
 
 /// Descobre fluxos via SAP e mantem as assinaturas escolhidas no painel.
-fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<Clock>) -> Res<()> {
+fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<Clock>, own: OwnFlows) -> Res<()> {
     let sock = net::listener(sap::GROUP, sap::PORT, iface)?;
     sock.set_read_timeout(Some(Duration::from_millis(500)))?;
     std::thread::spawn(move || {
@@ -320,7 +324,9 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
             }
             if let Ok((n, _)) = sock.recv_from(&mut buf) {
                 if let Some((ann, s)) = sap::parse(&buf[..n]).and_then(|a| Session::parse(a.sdp).map(|s| (a, s))) {
-                    if ann.origin != iface || selftest() {
+                    // Os fluxos deste programa nao aparecem na lista; os de outro programa no
+                    // mesmo computador aparecem (dá para receber a mesa na placa virtual).
+                    if !own.lock().unwrap().contains(&s.name) || selftest() {
                         known.retain(|k| k.name != s.name);
                         if !ann.delete {
                             known.push(s);
@@ -409,6 +415,18 @@ pub struct Network {
     pub tx_fifo: Fifo,
     pub rx_fifos: Vec<Fifo>,
     pub net_tx: usize,
+    /// Nome deste programa na rede.
+    pub name: String,
+    /// Base do nome do fluxo do som do computador: o nome escolhido, ou o do computador.
+    aux_base: String,
+    group_base: u32,
+    flow_base: u32,
+    own: OwnFlows,
+}
+
+/// Nome do fluxo a parte com o som do computador.
+pub fn aux_flow_name(name: &str) -> String {
+    format!("{name} - Saida de Audio")
 }
 
 impl Network {
@@ -416,6 +434,44 @@ impl Network {
     /// portas sao soltas. Usado para aplicar uma configuracao nova sem fechar o programa.
     pub fn shutdown(&self) {
         self.clock.stop.store(true, Relaxed);
+    }
+
+    /// Liga um fluxo a parte, fora da matriz, com o som do computador ("NOME - Saida de
+    /// Audio", 2 canais). `ch` e `rate`: formato de quem entrega o som (mais de 2 canais sao
+    /// somados em 2). O fluxo para junto com a rede.
+    pub fn start_aux(&self, ch: usize, rate: u32) -> Res<Capture> {
+        let ch = ch.max(1);
+        let iface = self.clock.iface;
+        let name = aux_flow_name(&self.aux_base);
+        let group = Ipv4Addr::from(self.group_base + MAX_FLOW_CHANNELS as u32); // depois dos 8 fluxos possiveis
+        let flow = TxFlow {
+            dest: SocketAddrV4::new(group, tx_port()),
+            first_ch: 0,
+            session: Session {
+                name: name.clone(), origin: iface, session_id: (u32::from(iface) as u64) << 8 | (self.flow_base as u64 + 8),
+                group, port: tx_port(), pt: 97, channels: 2, rate: RATE, bits: 24, refclk: None,
+            },
+        };
+        let target = 8 * rate as usize / 1000; // 8 ms de folga: o som do computador nao e critico
+        let fifo: Fifo = Arc::new(Mutex::new(DriftFifo::with_ratio(2, target, rate as f64 / RATE as f64)));
+        self.own.lock().unwrap().push(name);
+        spawn_tx(self.clock.clone(), fifo.clone(), vec![flow], iface, 0x5A5A_0000)?;
+        let mut stereo: Vec<f32> = Vec::new();
+        Ok(Box::new(move |input: &[f32]| {
+            let frames = input.len() / ch;
+            stereo.clear();
+            for frame in input.chunks_exact(ch) {
+                let (l, r) = match ch {
+                    1 => (frame[0], frame[0]),
+                    _ => (frame[0], frame[1]),
+                };
+                stereo.push(l);
+                stereo.push(r);
+            }
+            let mut f = fifo.lock().unwrap();
+            f.note_block(frames);
+            f.push(&stereo);
+        }))
     }
 }
 
@@ -501,8 +557,9 @@ pub fn start_network(
     let rx_fifos: Vec<Fifo> = (0..RX_SLOTS)
         .map(|_| Arc::new(Mutex::new(DriftFifo::with_ratio(MAX_FLOW_CHANNELS, target, RATE as f64 / dev_rate as f64))))
         .collect();
-    spawn_tx(clock.clone(), tx_fifo.clone(), flows, iface)?;
-    spawn_rx(shared.clone(), rx_fifos.clone(), iface, clock.clone())?;
+    let own: OwnFlows = Arc::new(Mutex::new(flows.iter().map(|f| f.session.name.clone()).collect()));
+    spawn_tx(clock.clone(), tx_fifo.clone(), flows, iface, 0)?;
+    spawn_rx(shared.clone(), rx_fifos.clone(), iface, clock.clone(), own.clone())?;
 
     // Entrada da placa -> matriz TX -> fila de rede.
     let (sh, fifo) = (shared.clone(), tx_fifo.clone());
@@ -576,7 +633,9 @@ pub fn start_network(
         matrix.process(&net, output);
     };
 
-    Ok((Network { clock, tx_fifo, rx_fifos, net_tx }, Box::new(capture), Box::new(playback)))
+    let aux_base = if cfg.name.trim().is_empty() { auto_name(&net::computer_name(), "") } else { name.clone() };
+    let network = Network { clock, tx_fifo, rx_fifos, net_tx, name, aux_base, group_base: base, flow_base, own };
+    Ok((network, Box::new(capture), Box::new(playback)))
 }
 
 /// Atualiza no estado compartilhado o que o painel mostra sobre relogio e fila.

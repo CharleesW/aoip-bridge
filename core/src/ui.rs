@@ -286,7 +286,7 @@ mod tests {
         assert!(post("/api/rx?slot=1&name=MESA%20%3A%202").contains("true"));
         let state = request(port, "GET /api/state HTTP/1.1\r\nHost: localhost\r\n\r\n");
         assert!(state.contains("\"tx\":[[2,5,-6]]"), "{state}");
-        assert!(state.contains("\"slots\":[\"\",\"MESA : 2\",\"\",\"\"]"), "{state}");
+        assert!(state.contains("\"slots\":[\"\",\"MESA : 2\",\"\""), "{state}");
         // config foi gravada em disco
         let saved = Config::parse(&std::fs::read_to_string(dir.join("c.conf")).unwrap());
         assert_eq!((saved.tx_map.as_deref(), saved.rx[1].as_str()), (Some("3>6@-6"), "MESA : 2"));

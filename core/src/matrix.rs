@@ -5,11 +5,14 @@ pub struct Matrix {
     ins: usize,
     outs: usize,
     gains: Vec<f32>, // [out * ins + in]
+    /// So os pontos ligados (entrada, saida, ganho): com 64x64 quase tudo e zero, e o
+    /// audio percorre so isto em vez da matriz inteira.
+    active: Vec<(u16, u16, f32)>,
 }
 
 impl Matrix {
     pub fn new(ins: usize, outs: usize) -> Self {
-        Self { ins, outs, gains: vec![0.0; ins * outs] }
+        Self { ins, outs, gains: vec![0.0; ins * outs], active: Vec::new() }
     }
 
     /// Preset 1:1 (entrada 1 -> saida 1, 2 -> 2, ...).
@@ -28,6 +31,19 @@ impl Matrix {
     pub fn set(&mut self, input: usize, output: usize, gain: f32) {
         if input < self.ins && output < self.outs {
             self.gains[output * self.ins + input] = gain;
+            self.rebuild();
+        }
+    }
+
+    fn rebuild(&mut self) {
+        self.active.clear();
+        for o in 0..self.outs {
+            for i in 0..self.ins {
+                let g = self.gains[o * self.ins + i];
+                if g != 0.0 {
+                    self.active.push((i as u16, o as u16, g));
+                }
+            }
         }
     }
 
@@ -56,6 +72,7 @@ impl Matrix {
 
     pub fn clear(&mut self) {
         self.gains.fill(0.0);
+        self.active.clear();
     }
 
     /// Como `parse`, mas ignora rotas invalidas (config antiga, placa trocada).
@@ -70,6 +87,7 @@ impl Matrix {
                 }
             }
         }
+        m.rebuild();
         m
     }
 
@@ -99,15 +117,9 @@ impl Matrix {
         for f in 0..frames {
             let src = &input[f * self.ins..(f + 1) * self.ins];
             let dst = &mut output[f * self.outs..(f + 1) * self.outs];
-            for (o, d) in dst.iter_mut().enumerate() {
-                let row = &self.gains[o * self.ins..(o + 1) * self.ins];
-                let mut acc = 0.0;
-                for (g, s) in row.iter().zip(src) {
-                    if *g != 0.0 {
-                        acc += g * s;
-                    }
-                }
-                *d = acc;
+            dst.fill(0.0);
+            for &(i, o, g) in &self.active {
+                dst[o as usize] += g * src[i as usize];
             }
         }
     }
@@ -136,6 +148,26 @@ mod tests {
         assert_eq!(Matrix::from_saved(Some("1>1,9>9"), 2, 2).to_spec(), "1>1@0");
         assert_eq!(Matrix::from_saved(None, 2, 3).to_spec(), "1>1@0,2>2@0");
         assert_eq!(Matrix::from_saved(Some(""), 2, 2).to_spec(), "");
+    }
+
+    #[test]
+    fn big_sparse_matrix() {
+        // 64x64 com poucos pontos: o resultado e o mesmo de somar so os pontos ligados
+        let mut m = Matrix::new(64, 64);
+        m.set(63, 0, 1.0);
+        m.set(0, 63, 0.5);
+        m.set(5, 63, 1.0);
+        let mut input = vec![0.0f32; 64];
+        input[63] = 2.0;
+        input[0] = 4.0;
+        input[5] = 1.0;
+        let mut out = vec![9.0f32; 64];
+        m.process(&input, &mut out);
+        assert_eq!((out[0], out[63], out[1]), (2.0, 3.0, 0.0));
+        m.set(63, 0, 0.0);
+        m.process(&input, &mut out);
+        assert_eq!(out[0], 0.0, "ponto desligado sai da lista");
+        assert_eq!(Matrix::from_saved(Some("2>1"), 2, 2).points(), vec![(1, 0, 0.0)]);
     }
 
     #[test]

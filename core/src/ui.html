@@ -234,7 +234,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
 
   <section id="rxSec">
     <h2>Receber da rede</h2>
-    <p class="sub">Escolha até 4 fluxos AES67 e ligue os canais deles nas saídas da placa.</p>
+    <p class="sub">Escolha até 8 fluxos AES67 e ligue os canais deles nas saídas da placa.</p>
     <div class="slots" id="slots"></div>
     <div class="bar"><button data-preset="rx:identity">1 para 1</button><button data-preset="rx:clear">Limpar</button></div>
     <div class="gridwrap"><table id="rxGrid" role="grid" aria-label="Matriz de recepção: canais dos fluxos recebidos para saídas da placa"></table></div>
@@ -253,7 +253,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const SLOT = 'ABCD';
+const SLOT = 'ABCDEFGH';
 let S = null, sel = null, shape = {}, formTouched = false, offline = 0, restartUntil = 0, stopped = false;
 
 async function post(path, params) {

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::Mutex;
 
 /// Fluxos que podem ser recebidos ao mesmo tempo (8 canais cada).
-pub const RX_SLOTS: usize = 4;
+pub const RX_SLOTS: usize = 8;
 pub const NET_RX: usize = RX_SLOTS * crate::MAX_FLOW_CHANNELS;
 pub const MAX_CH: usize = 64;
 
@@ -26,13 +26,24 @@ pub struct Config {
     pub rx: Vec<String>,
     pub tx_map: Option<String>,
     pub rx_map: Option<String>,
+    /// Placa virtual: canais de entrada e de saida (2, 4, 8, 16, 32 ou 64).
+    pub card_channels: usize,
+    /// Placa virtual: tamanho do bloco de audio em amostras (64, 128, 256 ou 512).
+    pub buffer: usize,
+    /// Placa virtual (Windows): mandar o som do Windows para a rede, num fluxo a parte.
+    pub sys_audio: bool,
 }
+
+/// Opcoes da placa virtual.
+pub const CARD_CHANNELS: [usize; 6] = [2, 4, 8, 16, 32, 64];
+pub const BUFFERS: [usize; 4] = [64, 128, 256, 512];
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             device: String::new(), iface: String::new(), name: String::new(), tx_channels: 0,
             latency_ms: 4, rate: 0, rx: vec![String::new(); RX_SLOTS], tx_map: None, rx_map: None,
+            card_channels: 32, buffer: 128, sys_audio: false,
         }
     }
 }
@@ -53,6 +64,9 @@ impl Config {
                 "rate" => c.rate = v.parse().unwrap_or(0),
                 "tx_map" => c.tx_map = Some(v.into()),
                 "rx_map" => c.rx_map = Some(v.into()),
+                "card_channels" => c.card_channels = v.parse().ok().filter(|n| CARD_CHANNELS.contains(n)).unwrap_or(32),
+                "buffer" => c.buffer = v.parse().ok().filter(|n| BUFFERS.contains(n)).unwrap_or(128),
+                "sys_audio" => c.sys_audio = v == "1" || v == "true",
                 k => {
                     if let Some(Ok(i)) = k.strip_prefix("rx").map(str::parse::<usize>) {
                         if i < RX_SLOTS {
@@ -77,6 +91,7 @@ impl Config {
             "device={}\niface={}\nname={}\ntx_channels={}\nlatency_ms={}\nrate={}\n",
             line(&self.device), line(&self.iface), line(&self.name), self.tx_channels, self.latency_ms, self.rate
         );
+        t += &format!("card_channels={}\nbuffer={}\nsys_audio={}\n", self.card_channels, self.buffer, self.sys_audio as u8);
         for (i, r) in self.rx.iter().enumerate() {
             t += &format!("rx{i}={}\n", line(r));
         }
@@ -285,7 +300,11 @@ mod tests {
         c.rx[1] = "MESA : 2".into();
         c.tx_map = Some("1>1@0".into());
         c.rx_map = Some(String::new());
+        c.card_channels = 16;
+        c.buffer = 256;
+        c.sys_audio = true;
         assert_eq!(Config::parse(&c.to_text()), c);
+        assert_eq!(Config::parse("card_channels=7\nbuffer=100\n").card_channels, 32, "valor fora das opcoes volta ao padrao");
         assert_eq!(Config::parse("lixo\nlatency_ms=999\nrx9=x\n").latency_ms, 100);
     }
 
