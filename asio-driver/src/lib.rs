@@ -14,7 +14,7 @@ use aoip_engine::local::{self, CardClient, CardInfo};
 use aoip_engine::{open_browser, realtime_thread_for};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 pub const DRIVER_NAME: &str = "AoIP Bridge ASIO";
@@ -243,7 +243,7 @@ fn system_ns() -> u64 {
     }
     #[cfg(not(windows))]
     {
-        static START: OnceLock<Instant> = OnceLock::new();
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
         START.get_or_init(Instant::now).elapsed().as_nanos() as u64
     }
 }
