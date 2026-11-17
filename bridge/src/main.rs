@@ -165,7 +165,14 @@ fn start_engine(shared: &Arc<Shared>, host: &cpal::Host) -> Res<Engine> {
 
     let missing = |what: &str| format!("A placa \"{}\" nao foi encontrada ({what}). Confira se esta ligada e escolha de novo em Configuracao.", cfg.device);
     let in_dev = find_device(host, &cfg.device, true).ok_or_else(|| missing("entrada"))?;
-    let out_dev = find_device(host, &cfg.device, false).ok_or_else(|| missing("saida"))?;
+    // A mesma placa aberta UMA vez para entrada e saida. No ASIO o driver so tem um conjunto
+    // de buffers: abrir a saida num segundo "aparelho" refazia os buffers e a entrada ficava
+    // lendo os antigos, muda (a Ui24R chegava em silencio na rede, mas tocava pela saida).
+    let out_dev = if in_dev.default_output_config().is_ok() {
+        in_dev.clone()
+    } else {
+        find_device(host, &cfg.device, false).ok_or_else(|| missing("saida"))?
+    };
     // Taxa da placa: a escolhida em Configuracao; no automatico, 48000 Hz se a placa aceitar
     // e, senao, a taxa em que ela ja esta. A rede e sempre 48000 Hz: quando a placa fica em
     // outra taxa, as filas convertem.
