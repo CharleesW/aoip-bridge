@@ -33,7 +33,7 @@ fn main() {
             }
         });
     }
-    let listener = std::net::TcpListener::bind(("127.0.0.1", local::PORT)).expect("porta 48790 livre");
+    let listener = std::net::TcpListener::bind(("127.0.0.1", local::PORT)).expect("porta 48790 livre (feche o AoIP Virtual)");
     local::serve(card.clone(), listener);
     {
         let c = card.clone();
@@ -48,13 +48,14 @@ fn main() {
     let (mut to_net, mut from_net) = (vec![0f32; frames * ch], vec![0f32; frames * ch]);
     let (mut phase, mut next, start) = (0f32, Instant::now(), Instant::now());
     let (mut peak, mut aux_l, mut aux_r) = (0f32, 0f32, 0f32);
-    while start.elapsed() < Duration::from_secs(6) {
+    let secs: u64 = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(6);
+    while start.elapsed() < Duration::from_secs(secs) {
         for f in 0..frames {
             to_net[f * ch] = 0.5 * phase.sin();
             phase = (phase + std::f32::consts::TAU * 1000.0 / info.rate as f32) % std::f32::consts::TAU;
         }
         drv.exchange(&to_net, &mut from_net, ch).unwrap();
-        if start.elapsed() > Duration::from_secs(4) {
+        if start.elapsed() > Duration::from_secs(secs.saturating_sub(2)) {
             for f in 0..frames {
                 peak = peak.max(from_net[f * ch].abs());
                 aux_l = aux_l.max(from_net[f * ch + 8].abs());

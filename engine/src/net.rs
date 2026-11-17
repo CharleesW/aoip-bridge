@@ -296,3 +296,28 @@ mod tests {
         assert_eq!(short_host("192.168.0.4"), None);
     }
 }
+
+/// Renova a assinatura de um grupo multicast a cada minuto (sai e entra de novo, o que manda
+/// um novo aviso IGMP). Em rede sem "IGMP querier", os switches e roteadores Wi-Fi esquecem
+/// depois de alguns minutos quem pediu cada grupo e param de entregar: o programa perderia o
+/// relogio, os anuncios ou o audio sem nenhum aviso.
+pub struct Keepalive {
+    group: Ipv4Addr,
+    iface: Ipv4Addr,
+    last: std::time::Instant,
+}
+
+impl Keepalive {
+    pub fn new(group: Ipv4Addr, iface: Ipv4Addr) -> Self {
+        Self { group, iface, last: std::time::Instant::now() }
+    }
+
+    /// Chamar no laco de recepcao; so age uma vez por minuto.
+    pub fn tick(&mut self, sock: &UdpSocket) {
+        if self.last.elapsed() >= std::time::Duration::from_secs(60) {
+            self.last = std::time::Instant::now();
+            let _ = sock.leave_multicast_v4(&self.group, &self.iface);
+            let _ = sock.join_multicast_v4(&self.group, &self.iface);
+        }
+    }
+}

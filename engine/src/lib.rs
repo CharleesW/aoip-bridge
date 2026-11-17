@@ -167,7 +167,9 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
         std::thread::spawn(move || {
             realtime_thread(); // o carimbo de chegada e tirado aqui: atraso vira erro de relogio
             let mut buf = [0u8; 512];
+            let mut keep = net::Keepalive::new(ptp::GROUP, iface);
             while !clock.stop.load(Relaxed) {
+                keep.tick(&sock);
                 let (n, from) = match sock.recv_from(&mut buf) {
                     Ok(x) => x,
                     Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => continue,
@@ -248,6 +250,7 @@ fn spawn_nodes(shared: Arc<Shared>, clock: Arc<Clock>, iface: Ipv4Addr, id: Stri
     std::thread::spawn(move || {
         let mut buf = vec![0u8; 16 * 1024];
         let mut last = None::<Instant>;
+        let mut keep = net::Keepalive::new(ANNOUNCE_GROUP, iface);
         while !clock.stop.load(Relaxed) {
             if last.map_or(true, |t| t.elapsed() >= Duration::from_secs(1)) {
                 last = Some(Instant::now());
@@ -255,6 +258,7 @@ fn spawn_nodes(shared: Arc<Shared>, clock: Arc<Clock>, iface: Ipv4Addr, id: Stri
                 let _ = sender.send_to(own.encode().as_bytes(), (ANNOUNCE_GROUP, ANNOUNCE_PORT));
                 note_node(&mut shared.nodes.lock().unwrap(), own, true, Instant::now());
             }
+            keep.tick(&sock);
             if let Ok((n, _)) = sock.recv_from(&mut buf) {
                 if let Some(info) = std::str::from_utf8(&buf[..n]).ok().and_then(NodeInfo::parse) {
                     if info.id != id {
@@ -377,6 +381,7 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
         let mut known: Vec<Session> = Vec::new();
         let mut running: Vec<Option<(String, Arc<AtomicBool>)>> = (0..RX_SLOTS).map(|_| None).collect();
         let usable = |s: &Session| s.rate == RATE && (s.bits == 24 || s.bits == 16);
+        let mut keep = net::Keepalive::new(sap::GROUP, iface);
         loop {
             if clock.stop.load(Relaxed) {
                 for (_, stop) in running.iter_mut().filter_map(Option::take) {
@@ -385,6 +390,7 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
                 *shared.slot_active.lock().unwrap() = vec![false; RX_SLOTS];
                 return;
             }
+            keep.tick(&sock);
             if let Ok((n, _)) = sock.recv_from(&mut buf) {
                 if let Some((ann, s)) = sap::parse(&buf[..n]).and_then(|a| Session::parse(a.sdp).map(|s| (a, s))) {
                     // Os fluxos deste programa nao aparecem na lista; os de outro programa no
@@ -416,7 +422,7 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
                                 let stop = Arc::new(AtomicBool::new(false));
                                 running[slot] = Some((s.name.clone(), stop.clone()));
                                 let (s, fifo) = (s.clone(), fifos[slot].clone());
-                                std::thread::spawn(move || receive_flow(s, sock, fifo, stop));
+                                std::thread::spawn(move || receive_flow(s, sock, fifo, stop, iface));
                             }
                             Err(e) => {
                                 // Tenta de novo na proxima volta; o painel mostra o motivo.
@@ -435,7 +441,7 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
     Ok(())
 }
 
-fn receive_flow(s: Session, sock: std::net::UdpSocket, fifo: Fifo, stop: Arc<AtomicBool>) {
+fn receive_flow(s: Session, sock: std::net::UdpSocket, fifo: Fifo, stop: Arc<AtomicBool>, iface: Ipv4Addr) {
     let _ = sock.set_read_timeout(Some(Duration::from_millis(300)));
     let (src_ch, dst_ch) = (s.channels as usize, MAX_FLOW_CHANNELS);
     let mut buf = [0u8; 2048];
@@ -443,7 +449,9 @@ fn receive_flow(s: Session, sock: std::net::UdpSocket, fifo: Fifo, stop: Arc<Ato
     // Mesma razao do envio: sem prioridade a thread acorda atrasada e os pacotes chegam em rajadas.
     realtime_thread();
     let mut last = Instant::now();
+    let mut keep = net::Keepalive::new(s.group, iface);
     while !stop.load(Relaxed) {
+        keep.tick(&sock);
         let Ok((n, from)) = sock.recv_from(&mut buf) else { last = Instant::now(); continue };
         RX_GAP_US.fetch_max(last.elapsed().as_micros() as u64, Relaxed);
         last = Instant::now();
