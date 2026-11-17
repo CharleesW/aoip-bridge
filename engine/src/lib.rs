@@ -79,6 +79,9 @@ pub struct Clock {
     pub iface: Ipv4Addr,
     /// Pedido para desligar a rede (todas as threads deste motor terminam em ate ~0,5 s).
     pub stop: AtomicBool,
+    /// Ultima medida recebida do relogio seguido (relogio local, ns). O painel avisa quando
+    /// para de chegar; o audio segue com a ultima hora conhecida, sem cortar.
+    pub last_sync: AtomicI64,
 }
 
 impl Clock {
@@ -211,6 +214,7 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
                 if let Some(off) = f.on_msg(msg, local) {
                     clock.offset.store(off as i64, Relaxed);
                     clock.locked.store(true, Relaxed);
+                    clock.last_sync.store(local as i64, Relaxed);
                 }
                 if f.gmid.is_some() {
                     *clock.gmid.lock().unwrap() = f.gmid;
@@ -610,7 +614,7 @@ pub fn start_network(
 
     let clock = Arc::new(Clock {
         base: Instant::now(), offset: AtomicI64::new(0), locked: AtomicBool::new(false), gmid: Mutex::new(None), master: AtomicBool::new(false),
-        announcers: Mutex::new(HashMap::new()), iface, stop: AtomicBool::new(false),
+        announcers: Mutex::new(HashMap::new()), iface, stop: AtomicBool::new(false), last_sync: AtomicI64::new(0),
     });
     if selftest() {
         // Relogio local no lugar do PTP, com um identificador de grandmaster ficticio.
@@ -761,7 +765,12 @@ pub fn refresh_status(shared: &Shared, n: &Network) {
         None => String::new(),
     };
     let mut st = shared.status.lock().unwrap();
-    st.ptp = n.clock.locked.load(Relaxed);
+    // Seguindo um relogio que parou de mandar medidas ha mais de 5 s: avisa (sem relogio).
+    let silent = !is_self && !selftest() && n.clock.local_ns() as i64 - n.clock.last_sync.load(Relaxed) > 5_000_000_000;
+    st.ptp = n.clock.locked.load(Relaxed) && !silent;
+    if silent && n.clock.locked.load(Relaxed) {
+        st.gm_name = "procurando o relogio...".into();
+    }
     st.grandmaster = gmid.map(|g| g.iter().map(|b| format!("{b:02X}")).collect()).unwrap_or_default();
     st.gm_ip = gm_ip.map(|ip| ip.to_string()).unwrap_or_default();
     st.gm_name = gm_name;
