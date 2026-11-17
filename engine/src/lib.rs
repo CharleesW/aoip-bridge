@@ -157,7 +157,14 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
     let own = ptp::clock_id(iface, instance);
     let follower = Arc::new(Mutex::new(ptp::Follower::default()));
     // Quem esta com placa de verdade (a mesa) tem preferencia para ser o relogio.
-    let priority1 = if instance == 0 { ptp::CARD_PRIORITY1 } else { ptp::OWN_PRIORITY1 };
+    // AOIP_SO_OBSERVAR=1: so segue o relogio (ex.: um painel de controle por Wi-Fi).
+    let priority1 = if std::env::var_os("AOIP_SO_OBSERVAR").is_some() {
+        ptp::OBSERVER_PRIORITY1
+    } else if instance == 0 {
+        ptp::CARD_PRIORITY1
+    } else {
+        ptp::OWN_PRIORITY1
+    };
     let election = Arc::new(Mutex::new(ptp::Election::new(own, priority1, clock.local_ns())));
     for port in [ptp::EVENT_PORT, ptp::GENERAL_PORT] {
         let sock = net::listener(ptp::GROUP, port, iface)
@@ -189,6 +196,16 @@ fn spawn_ptp(clock: Arc<Clock>, iface: Ipv4Addr, instance: u8) -> Res<()> {
                 }
                 if clock.master.load(Relaxed) {
                     continue; // enquanto geramos o relogio, nao seguimos ninguem
+                }
+                // Segue so o melhor relogio que esta anunciando (com dois na rede, misturar os
+                // dois daria saltos de hora). Sem anuncio ainda, espera.
+                let best = election.lock().unwrap().best_gm(local);
+                let from_best = match msg {
+                    ptp::Msg::Announce { gmid } => Some(gmid) == best,
+                    _ => best.is_some() && ptp::source_id(pkt) == best,
+                };
+                if !from_best {
+                    continue;
                 }
                 let mut f = follower.lock().unwrap();
                 if let Some(off) = f.on_msg(msg, local) {

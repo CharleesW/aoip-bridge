@@ -121,18 +121,25 @@ pub fn build_announce(id: [u8; 8], seq: u16, ts_ns: u128, priority1: u8) -> Vec<
     b
 }
 
-/// Decide se este computador deve gerar o relogio.
+/// So observa: nunca gera o relogio (ex.: um painel de controle num computador por Wi-Fi).
+pub const OBSERVER_PRIORITY1: u8 = 255;
+/// Um relogio que parou de anunciar por este tempo deixa de ser seguido.
+pub const ANNOUNCE_TIMEOUT_NS: i128 = 4_000_000_000;
+
+/// Decide se este computador deve gerar o relogio e, se nao, qual relogio seguir.
 pub struct Election {
     own: [u8; 8],
     priority1: u8,
     last_better: i128,
+    /// Melhor relogio de fora ouvido: (prioridade 1, identidade, quando).
+    best: Option<(u8, [u8; 8], i128)>,
 }
 
 impl Election {
     /// `now_ns`: relogio monotonico local. Comeca esperando, para ouvir a rede primeiro.
     /// `priority1`: `CARD_PRIORITY1` com placa de verdade, `OWN_PRIORITY1` na placa virtual.
     pub fn new(own: [u8; 8], priority1: u8, now_ns: i128) -> Self {
-        Self { own, priority1, last_better: now_ns }
+        Self { own, priority1, last_better: now_ns, best: None }
     }
 
     pub fn priority1(&self) -> u8 {
@@ -141,12 +148,28 @@ impl Election {
 
     /// Registra um Announce recebido (prioridade 1 e identidade do grandmaster).
     pub fn on_announce(&mut self, priority1: u8, gmid: [u8; 8], now_ns: i128) {
-        if gmid != self.own && (priority1, gmid) < (self.priority1, self.own) {
+        if gmid == self.own || priority1 == OBSERVER_PRIORITY1 {
+            return;
+        }
+        let stale = self.best.map_or(true, |(_, _, t)| now_ns - t > ANNOUNCE_TIMEOUT_NS);
+        if stale || self.best.is_some_and(|(p, g, _)| (priority1, gmid) <= (p, g)) {
+            self.best = Some((priority1, gmid, now_ns));
+        }
+        if (priority1, gmid) < (self.priority1, self.own) {
             self.last_better = now_ns;
         }
     }
 
+    /// Relogio a seguir (o melhor que ainda anuncia). Com dois relogios na rede, seguir os
+    /// dois ao mesmo tempo misturaria horas diferentes.
+    pub fn best_gm(&self, now_ns: i128) -> Option<[u8; 8]> {
+        self.best.filter(|(_, _, t)| now_ns - t <= ANNOUNCE_TIMEOUT_NS).map(|(_, g, _)| g)
+    }
+
     pub fn is_master(&self, now_ns: i128) -> bool {
+        if self.priority1 == OBSERVER_PRIORITY1 {
+            return false;
+        }
         now_ns - self.last_better > MASTER_TIMEOUT_NS
     }
 }
@@ -307,6 +330,23 @@ mod tests {
         // o proprio eco nao conta
         ea.on_announce(OWN_PRIORITY1, a, 30 * sec);
         assert!(ea.is_master(31 * sec));
+        // dois relogios de fora: segue so o melhor; se ele sumir, passa para o outro
+        let mut f = Election::new(clock_id(std::net::Ipv4Addr::new(192, 168, 5, 77), 1), OWN_PRIORITY1, 0);
+        let (desk, mac) = (clock_id(std::net::Ipv4Addr::new(192, 168, 5, 90), 0), clock_id(std::net::Ipv4Addr::new(192, 168, 5, 2), 1));
+        f.on_announce(OWN_PRIORITY1, mac, 50 * sec);
+        f.on_announce(CARD_PRIORITY1, desk, 50 * sec);
+        f.on_announce(OWN_PRIORITY1, mac, 51 * sec);
+        assert_eq!(f.best_gm(51 * sec), Some(desk), "a mesa ganha do outro computador");
+        assert_eq!(f.best_gm(60 * sec), None, "parou de anunciar");
+        f.on_announce(OWN_PRIORITY1, mac, 61 * sec);
+        assert_eq!(f.best_gm(61 * sec), Some(mac));
+        // quem so observa nunca vira relogio, e nao e seguido
+        let mut obs = Election::new(clock_id(std::net::Ipv4Addr::new(192, 168, 5, 3), 1), OBSERVER_PRIORITY1, 0);
+        assert!(!obs.is_master(100 * sec));
+        f.on_announce(OBSERVER_PRIORITY1, [7; 8], 62 * sec);
+        assert_eq!(f.best_gm(62 * sec), Some(mac));
+        obs.on_announce(CARD_PRIORITY1, desk, 100 * sec);
+        assert_eq!(obs.best_gm(100 * sec), Some(desk));
         // quem esta com a mesa (placa de verdade) ganha da placa virtual, mesmo com
         // identidade maior; a virtual so assume quando ele some da rede
         let (card, virt) = (clock_id(std::net::Ipv4Addr::new(192, 168, 5, 90), 0), clock_id(std::net::Ipv4Addr::new(192, 168, 5, 2), 1));
