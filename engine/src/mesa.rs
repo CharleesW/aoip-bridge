@@ -144,11 +144,15 @@ pub fn open_window(url: &str) {
         return;
     }
     #[cfg(windows)]
+    if show_existing() {
+        return; // ja esta aberta: so traz para a frente
+    }
+    #[cfg(windows)]
     for base in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
         let Some(dir) = std::env::var_os(base) else { continue };
         let edge = std::path::Path::new(&dir).join("Microsoft\\Edge\\Application\\msedge.exe");
         if edge.exists() {
-            let profile = std::env::var_os("LOCALAPPDATA").map(|d| std::path::Path::new(&d).join("AoIP Bridge\\janela"));
+            let profile = std::env::var_os("LOCALAPPDATA").map(|d| std::path::Path::new(&d).join("AOIP-Bridge-Janela"));
             let mut c = Command::new(edge);
             c.arg(format!("--app={url}")).args(["--window-size=1240,840", "--no-first-run", "--no-default-browser-check"]);
             if let Some(p) = profile {
@@ -162,6 +166,46 @@ pub fn open_window(url: &str) {
     crate::open_browser(url);
 }
 
+/// E a nossa janela? (o titulo e so "AOIP-Bridge 0.7.0"; uma aba de navegador com o painel
+/// tem tambem o nome do navegador no titulo)
+#[cfg(any(windows, test))]
+fn is_our_title(title: &str) -> bool {
+    title.strip_prefix("AOIP-Bridge ").is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+}
+
+/// Windows: traz para a frente a janela ja aberta.
+#[cfg(windows)]
+fn show_existing() -> bool {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    unsafe extern "system" fn each(h: HWND, found: LPARAM) -> i32 {
+        let (mut title, mut class) = ([0u16; 128], [0u16; 64]);
+        // SAFETY: buffers locais, com o tamanho informado; `found` aponta para a variavel abaixo.
+        unsafe {
+            let n = GetWindowTextW(h, title.as_mut_ptr(), 128).max(0) as usize;
+            let c = GetClassNameW(h, class.as_mut_ptr(), 64).max(0) as usize;
+            if IsWindowVisible(h) != 0 && String::from_utf16_lossy(&class[..c]).starts_with("Chrome_WidgetWin") && is_our_title(&String::from_utf16_lossy(&title[..n])) {
+                *(found as *mut HWND) = h;
+                return 0;
+            }
+        }
+        1
+    }
+    // SAFETY: EnumWindows chama `each` so durante esta chamada.
+    unsafe {
+        let mut h: HWND = std::mem::zeroed();
+        EnumWindows(Some(each), &mut h as *mut HWND as LPARAM);
+        if h as isize == 0 {
+            return false;
+        }
+        if IsIconic(h) != 0 {
+            ShowWindow(h, SW_RESTORE);
+        }
+        SetForegroundWindow(h);
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +217,13 @@ mod tests {
         let l = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
         aoip_core::ui::serve(shared.clone(), l);
         shared
+    }
+
+    #[test]
+    fn recognizes_only_our_window() {
+        assert!(is_our_title("AOIP-Bridge 0.7.0"));
+        assert!(!is_our_title("AOIP-Bridge 0.7.0 - Google Chrome"));
+        assert!(!is_our_title("AOIP-Bridge ") && !is_our_title("AOIP-Bridge"));
     }
 
     #[test]

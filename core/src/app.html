@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AOIP-Bridge {{VERSAO}}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 512 512%22%3E%3Crect width=%22512%22 height=%22512%22 rx=%22112%22 fill=%22%23171B21%22/%3E%3Cg transform=%22translate%2888 88%29 scale%2814%29%22%3E%3Cpath d=%22M4 18H8C12.5 18 11.5 6 16 6H20%22 fill=%22none%22 stroke=%22%23E8ECF0%22 stroke-width=%222.2%22 stroke-linecap=%22round%22/%3E%3Ccircle cx=%224%22 cy=%2218%22 r=%222.6%22 fill=%22%23E8ECF0%22/%3E%3Ccircle cx=%2220%22 cy=%226%22 r=%222.6%22 fill=%22%23E8ECF0%22/%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%223%22 fill=%22%2326A88B%22 stroke=%22%23171B21%22 stroke-width=%221.2%22/%3E%3C/g%3E%3C/svg%3E">
 <script>
 // Mesmo tema do painel (guardado em aoip-theme; "sistema" segue o computador).
 (() => {
@@ -97,6 +98,7 @@ function paint() {
 }
 async function tick() {
   [up.mesa, up.virtual, app] = await Promise.all([alive('mesa'), alive('virtual'), call('/api/app')]);
+  if (app && app.version && app.version !== '{{VERSAO}}') { location.reload(); return; } // o programa foi atualizado
   paint();
 }
 for (const b of document.querySelectorAll('nav button[data-v]')) b.onclick = () => { view = b.dataset.v; try { localStorage.setItem('aoip-view', view); } catch (e) {} paint(); };

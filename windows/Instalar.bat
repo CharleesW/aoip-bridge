@@ -57,7 +57,7 @@ netsh advfirewall firewall delete rule name="AoIP Bridge - Controller" >nul 2>&1
 netsh advfirewall firewall add rule name="AoIP Bridge - Controller" dir=in action=allow protocol=TCP localport=8791,8792 profile=any remoteip=localsubnet >nul
 
 rem Remove a instalacao antiga (versao 0.2, na pasta do usuario).
-if exist "%LOCALAPPDATA%\AoIP Bridge" rmdir /s /q "%LOCALAPPDATA%\AoIP Bridge"
+if exist "%LOCALAPPDATA%\AoIP Bridge" rmdir /s /q "%LOCALAPPDATA%\AoIP Bridge" >nul 2>&1
 powershell -NoProfile -Command "$s=New-Object -ComObject WScript.Shell; foreach($d in @([Environment]::GetFolderPath('CommonDesktopDirectory'),[Environment]::GetFolderPath('CommonPrograms'))){ $l=$s.CreateShortcut((Join-Path $d 'AoIP Bridge.lnk')); $l.TargetPath=(Join-Path $env:ProgramFiles 'AoIP Bridge\aoip-winvirtual.exe'); $l.WorkingDirectory=(Join-Path $env:ProgramFiles 'AoIP Bridge'); $l.Save() }"
 del "%USERPROFILE%\Desktop\AoIP Bridge.lnk" >nul 2>&1
 rem Atalho antigo da placa virtual: agora e um programa so.

@@ -1,4 +1,4 @@
-AoIP Bridge para Windows (versao de teste 0.7.0)
+AoIP Bridge para Windows (versao de teste 0.7.1)
 ===============================================
 
 ATENCAO: versao de teste. A janela unica (0.7.0) foi testada no Mac e ainda NAO rodou no

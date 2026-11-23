@@ -78,7 +78,7 @@ fn handle(mut conn: TcpStream, shared: &Shared) -> std::io::Result<()> {
         (200, "text/plain", "ok".to_string())
     } else if method == "GET" && path == "/api/app" {
         let m = shared.mesa.lock().unwrap().clone();
-        (200, "application/json", format!("{{\"mesa\":{{\"available\":{},\"wanted\":{},\"running\":{}}}}}", m.available, m.wanted, m.running))
+        (200, "application/json", format!("{{\"version\":{},\"mesa\":{{\"available\":{},\"wanted\":{},\"running\":{}}}}}", json_str(crate::VERSION), m.available, m.wanted, m.running))
     } else if method == "GET" && path == "/api/diag" {
         (200, "application/json", diag_json(shared))
     } else if method == "GET" && path == "/api/state" {
