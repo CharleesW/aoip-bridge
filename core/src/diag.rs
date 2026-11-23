@@ -1,7 +1,7 @@
 //! Diagnostico: numeros que dizem ONDE o audio falha, para o painel mostrar sem precisar
 //! entrar no computador. Os contadores sao so somados (o painel faz a conta por minuto) e os
 //! "maximos" sao zerados a cada leitura, para mostrar o pior caso recente.
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 
 /// Envio: se `send_us` cresce, cada envio esta custando caro; se `wake_us` cresce, o
 /// Windows/macOS esta acordando o programa atrasado; se `lag_us` cresce, o envio nao
@@ -16,6 +16,16 @@ pub struct TxDiag {
     pub send_us_max: AtomicU64,
     pub wake_us_max: AtomicU64,
     pub lag_us_max: AtomicU64,
+    /// Placa virtual sem programa de audio: os pacotes estao suspensos (nada se perde).
+    pub idle: AtomicBool,
+}
+
+/// Depois deste tempo sem audio de nenhum programa, a placa virtual para de mandar silencio.
+pub const IDLE_AFTER_MS: u64 = 2000;
+
+/// `fed`: hora (ms) do ultimo bloco que a placa entregou; 0 = nenhum ainda.
+pub fn is_idle(fed: u64, now: u64) -> bool {
+    fed == 0 || now.saturating_sub(fed) > IDLE_AFTER_MS
 }
 
 impl TxDiag {
@@ -83,6 +93,24 @@ mod tests {
         let mut w = Sequence::default();
         w.check(65_535, 0, 48);
         assert_eq!(w.check(0, 48, 48), (0, false));
+    }
+
+    #[test]
+    fn a_long_pause_is_not_a_jump() {
+        let mut s = Sequence::default();
+        s.check(10, 480, 48);
+        s = Sequence::default(); // quem recebe recomeca a conta depois de 1 s sem pacotes
+        assert_eq!(s.check(11, 480 + 48_000 * 30, 48), (0, false), "voltou depois de 30 s parada");
+        assert_eq!(s.check(12, 480 + 48_000 * 30 + 48, 48), (0, false));
+    }
+
+    #[test]
+    fn idle_only_without_any_audio_program() {
+        assert!(is_idle(0, 1), "nunca tocou");
+        assert!(!is_idle(5000, 5001));
+        assert!(!is_idle(5000, 5000 + IDLE_AFTER_MS));
+        assert!(is_idle(5000, 5001 + IDLE_AFTER_MS));
+        assert!(!is_idle(5000, 4990), "relogio lido um instante antes");
     }
 
     #[test]

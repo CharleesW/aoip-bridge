@@ -19,7 +19,7 @@ marca registrada da Audinate Pty Ltd e aparece aqui só para descrever a compati
 |---|---|
 | `core/` | Núcleo sem dependências externas: matriz, RTP (L24), SDP, SAP, PTPv2 (seguidor e relógio próprio), fila com correção de relógio e conversão de taxa, configuração, painel web. 28 testes. |
 | `engine/` | Rede e relógio em funcionamento (threads de envio, recepção, PTP e anúncios). |
-| `bridge/` | Programa **AoIP Bridge** (macOS e Windows): liga uma placa de som (CoreAudio/ASIO) à rede. Painel em http://127.0.0.1:8787. |
+| `bridge/` | Programa **AoIP Bridge** (macOS e Windows): liga uma placa de som (CoreAudio/ASIO) à rede. Aparece como "Mesa" na janela única. |
 | `asio-driver/` | **AoIP Bridge ASIO** (Windows): driver ASIO virtual 32x32. O programa de áudio (REAPER etc.) enxerga a rede como se fosse uma placa. Painel em http://127.0.0.1:8788. |
 | `mac-driver/` | **AoIP Bridge** (macOS): placa de som virtual 32x32 (AudioServerPlugIn) que qualquer programa de áudio enxerga, mais o programa auxiliar `aoip-virtual` com a rede e o painel (http://127.0.0.1:8788). |
 | `android/` | **AoIP Escuta** (Android 6+): escolhe um fluxo da rede e dois canais e toca no celular. Java puro, sem Gradle. |

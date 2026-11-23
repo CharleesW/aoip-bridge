@@ -100,7 +100,7 @@ pub fn install(shared: &Shared, a: &Available, program: Program) -> Result<(), S
         u.message = if cfg!(windows) {
             "Instalando: aceite o pedido de administrador do Windows. O AoIP fecha e abre de novo sozinho.".into()
         } else {
-            "Instalando: siga no Terminal (o Mac pede a sua senha). A placa virtual volta sozinha; o AoIP Bridge, abra de novo depois.".into()
+            "Instalando: siga no Terminal (o Mac pede a sua senha). O programa volta sozinho no fim.".into()
         };
     });
     Ok(())

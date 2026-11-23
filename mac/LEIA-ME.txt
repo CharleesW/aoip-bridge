@@ -1,4 +1,4 @@
-AoIP Bridge para Mac - versao de teste 0.6.5
+AoIP Bridge para Mac - versao de teste 0.7.0
 ===========================================
 
 O que vem no pacote
@@ -6,7 +6,9 @@ O que vem no pacote
   Qualquer programa de audio do Mac (REAPER, Logic, etc.) enxerga ela como uma placa comum.
   O que o programa toca nas saidas vai para a rede; o que chega da rede aparece nas entradas.
   E o equivalente, no Mac, ao driver "AoIP Bridge ASIO" do Windows.
-- AoIP Bridge.app: o programa que liga uma placa de som de verdade (ex.: Soundcraft Ui24R) a rede.
+- AoIP Bridge.app: o programa, numa janela so (sem navegador):
+    Rede (Controller) | Mesa (placa de verdade, ex.: Ui24R) | Placa virtual | Diagnostico
+  Fechar a janela nao para o audio.
 
 Instalar
 1. Abra o Terminal, digite  bash  e um espaco, arraste o arquivo Instalar.command para a
@@ -16,11 +18,17 @@ Instalar
 
 Usar a placa virtual
 1. No programa de audio, escolha "AoIP Bridge" como dispositivo de entrada e de saida, 48000 Hz.
-2. Abra http://127.0.0.1:8788 no navegador: e o painel da placa (matriz de envio, fluxos a
+2. Abra o programa AoIP Bridge e clique em "Placa virtual" (matriz de envio, fluxos a
    receber, nome, quantidade de canais).
 3. Enquanto nenhum programa usa a placa, nada vai para a rede e o painel avisa que ela esta
    parada. A rede liga sozinha quando um programa de audio comeca a usar a placa.
 4. Ao salvar a Configuracao, o som da placa falha por um ou dois segundos e volta.
+
+Usar uma placa de verdade (mesa)
+1. No AoIP Bridge, clique em "Mesa" e depois em "Ligar a mesa". Na primeira vez o Mac pede
+   acesso ao microfone (e a entrada da placa): aceite.
+2. Dali em diante a mesa liga junto com o Mac e volta sozinha se cair. Para parar:
+   "Desligar a mesa", embaixo a esquerda.
 
 Como funciona por dentro
 - O driver (AoIPBridge.driver) so troca audio com um programa auxiliar (aoip-virtual), que o

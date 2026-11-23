@@ -2,6 +2,7 @@
 //! pontas de audio (`Capture` e `Playback`) que a "placa" alimenta. A placa pode ser uma
 //! placa de verdade (programa `aoip-bridge`, via cpal) ou o driver ASIO virtual.
 pub mod local;
+pub mod mesa;
 pub mod net;
 pub mod update;
 pub mod virtual_card;
@@ -339,7 +340,7 @@ struct TxFlow {
 }
 
 /// Empacota 1 ms de audio por vez, no ritmo do relogio PTP, e anuncia via SAP.
-fn spawn_tx(shared: Arc<Shared>, clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Addr, ssrc_salt: u32) -> Res<()> {
+fn spawn_tx(shared: Arc<Shared>, clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Addr, ssrc_salt: u32, fed: Option<Arc<AtomicU64>>) -> Res<()> {
     let sock = net::sender(iface, selftest())?;
     // Um soquete "conectado" por fluxo: o sistema resolve o destino uma vez so, e nao a cada
     // pacote (no Windows, com antivirus e firewall, isso barateia muito cada envio).
@@ -373,6 +374,17 @@ fn spawn_tx(shared: Arc<Shared>, clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<T
                     f.session.refclk = Some((gmid, 0));
                     let msg = sap::build(false, f.session.session_id as u16, iface, &f.session.to_sdp());
                     let _ = sock.send_to(&msg, (sap::GROUP, sap::PORT));
+                }
+            }
+
+            // Placa virtual sem nenhum programa de audio: nao enche a rede de silencio. Os
+            // anuncios continuam, e o envio volta no primeiro bloco que chegar.
+            if let Some(fed) = &fed {
+                let idle = aoip_core::diag::is_idle(fed.load(Relaxed), now_ms());
+                shared.tx_diag.idle.store(idle, Relaxed);
+                if idle {
+                    next = 0;
+                    continue;
                 }
             }
 
@@ -523,6 +535,9 @@ fn receive_flow(shared: Arc<Shared>, slot: usize, s: Session, sock: std::net::Ud
         }
         samples.clear();
         rtp::decode(p.payload, s.bits, &mut samples);
+        if last_packet.is_some_and(|t| t.elapsed() > Duration::from_secs(1)) {
+            (last_packet, order) = (None, Sequence::default()); // pausa longa: nao e perda
+        }
         let (lost, jumped) = order.check(p.seq, p.ts, (samples.len() / src_ch.max(1)) as u32);
         diag.packets.fetch_add(1, Relaxed);
         diag.lost.fetch_add(lost, Relaxed);
@@ -594,7 +609,7 @@ impl Network {
         let target = 8 * rate as usize / 1000; // 8 ms de folga: o som do computador nao e critico
         let fifo: Fifo = Arc::new(Mutex::new(DriftFifo::with_ratio(2, target, rate as f64 / RATE as f64)));
         self.own.lock().unwrap().push(name);
-        spawn_tx(self.shared.clone(), self.clock.clone(), fifo.clone(), vec![flow], iface, 0x5A5A_0000)?;
+        spawn_tx(self.shared.clone(), self.clock.clone(), fifo.clone(), vec![flow], iface, 0x5A5A_0000, None)?;
         let mut stereo: Vec<f32> = Vec::new();
         Ok(Box::new(move |input: &[f32]| {
             let frames = input.len() / ch;
@@ -697,7 +712,10 @@ pub fn start_network(
         .map(|_| Arc::new(Mutex::new(DriftFifo::with_ratio(MAX_FLOW_CHANNELS, target, RATE as f64 / dev_rate as f64))))
         .collect();
     let own: OwnFlows = Arc::new(Mutex::new(flows.iter().map(|f| f.session.name.clone()).collect()));
-    spawn_tx(shared.clone(), clock.clone(), tx_fifo.clone(), flows, iface, 0)?;
+    // So a placa virtual (pode ficar horas sem programa de audio); a de verdade toca sempre.
+    let fed = Arc::new(AtomicU64::new(0));
+    shared.tx_diag.idle.store(false, Relaxed);
+    spawn_tx(shared.clone(), clock.clone(), tx_fifo.clone(), flows, iface, 0, (flow_base != 0).then(|| fed.clone()))?;
     spawn_rx(shared.clone(), rx_fifos.clone(), iface, clock.clone(), own.clone())?;
     // Controller: o AoIP Bridge usa a porta 8791 e a placa virtual a 8792 (podem estar no
     // mesmo computador). Sem a porta de comandos o resto funciona; o painel avisa.
@@ -744,9 +762,12 @@ pub fn start_network(
         note_peaks(&sh.in_peak, input, dev_ins);
         mixed.resize(input.len() / dev_ins * net_tx, 0.0);
         matrix.process(input, &mut mixed);
-        let mut f = fifo.lock().unwrap();
-        f.note_block(input.len() / dev_ins);
-        f.push(&mixed);
+        {
+            let mut f = fifo.lock().unwrap();
+            f.note_block(input.len() / dev_ins);
+            f.push(&mixed);
+        }
+        fed.store(now_ms(), Relaxed);
     };
     // Filas de rede -> matriz RX -> saida da placa.
     let (sh, fifos) = (shared.clone(), rx_fifos.clone());

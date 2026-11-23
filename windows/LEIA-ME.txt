@@ -1,14 +1,16 @@
-AoIP Bridge para Windows (versao de teste 0.6.5)
+AoIP Bridge para Windows (versao de teste 0.7.0)
 ===============================================
 
-ATENCAO: versao de teste. O AoIP Virtual e o driver ASIO desta versao foram testados so
-em simulador no Mac e ainda NAO rodaram no Windows. Podem falhar. Salve seus projetos
-antes e nao use em culto ou evento antes de testar.
+ATENCAO: versao de teste. A janela unica (0.7.0) foi testada no Mac e ainda NAO rodou no
+Windows. Salve seus projetos antes e nao use em culto ou evento antes de testar.
 
 O QUE VEM NO PACOTE
-- "AoIP Virtual" (aoip-winvirtual.exe): a placa virtual SEMPRE LIGADA. Inicia com o
-  Windows e fica com um icone perto do relogio. Cuida da rede o tempo todo (mesmo com o
-  REAPER fechado) e tem o painel em http://127.0.0.1:8788.
+- Um programa so, "AoIP Bridge", numa janela propria (usa o Edge do Windows, sem barra de
+  navegador): Rede (Controller) | Mesa | Placa virtual | Diagnostico.
+  Inicia com o Windows e fica com um icone perto do relogio (duplo clique abre a janela).
+  Fechar a janela NAO para o audio.
+- Placa virtual SEMPRE LIGADA. Sem nenhum programa de audio usando a placa, ela nao manda
+  nada para a rede (volta sozinha quando o REAPER abre).
   Clique no icone para:
     - Canais: 2x2, 4x4, 8x8, 16x16, 32x32 ou 64x64
     - Latencia: 64, 128, 256 ou 512 amostras
@@ -16,31 +18,33 @@ O QUE VEM NO PACOTE
     - Capturar som do Windows: o que o Windows estiver tocando vai para a rede num fluxo
       a parte, fora da matriz, chamado "NOME-DO-PC - Saida de Audio" (2 canais)
     - Iniciar com o Windows
-    - Abrir painel / Sair
+    - Abrir o AOIP-Bridge / Sair
 - Driver "AoIP Bridge ASIO": a placa AoIP no REAPER (e outros programas de 64 bits).
-  Ele so leva o audio entre o REAPER e o AoIP Virtual; se o AoIP Virtual estiver
+  Ele so leva o audio entre o REAPER e o programa; se o programa estiver
   fechado, o driver abre ele sozinho.
-- Programa "AoIP Bridge" (aoip-bridge.exe): liga uma placa de verdade (ex.: Ui24R) a rede.
+- Mesa: liga uma placa de verdade (ex.: Ui24R) a rede. Na janela: Mesa > "Ligar a mesa".
+  Dali em diante ela liga com o Windows e volta sozinha se cair. Para parar: "Desligar a
+  mesa", embaixo a esquerda.
 
 COMO INSTALAR
 1. Feche o REAPER. Extraia o ZIP inteiro para uma pasta (nao rode de dentro do ZIP).
 2. De dois cliques em "Instalar.bat" e aceite o pedido de administrador.
    - Se aparecer "O Windows protegeu o computador" (programa sem assinatura), clique em
      "Mais informacoes" e depois "Executar assim mesmo".
-3. Tudo fica em C:\Program Files\AoIP Bridge. O AoIP Virtual ja abre no fim da
+3. Tudo fica em C:\Program Files\AoIP Bridge. O programa ja abre no fim da
    instalacao (icone perto do relogio; pode estar escondido na setinha "^").
 
 COMO USAR NO REAPER
 1. Options > Preferences > Audio > Device.
    Audio system: ASIO.  ASIO Driver: AoIP Bridge ASIO.
-2. Os canais e a taxa sao os escolhidos no icone do AoIP Virtual. Se voce mudar la com o
+2. Os canais e a taxa sao os escolhidos no icone perto do relogio. Se voce mudar la com o
    REAPER aberto, o REAPER reabre a placa sozinho.
-3. Painel (icone > Abrir painel, ou "ASIO Configuration..." no REAPER). A primeira aba,
-   "Controller (rede)", mostra TODAS as maquinas com o AoIP na rede (Windows e Mac) e liga
+3. Janela (duplo clique no icone, ou "ASIO Configuration..." no REAPER). A primeira parte,
+   "Rede (Controller)", mostra TODAS as maquinas com o AoIP na rede (Windows e Mac) e liga
    qualquer canal de qualquer maquina em qualquer entrada de outra, de qualquer painel.
    Clique no nome da maquina para abrir/fechar; com as duas fechadas, clicar no cruzamento
    liga 1 para 1. O lapis (lapis) ao lado do canal renomeia: "Ch 01 Bumbo".
-   A aba "Este computador" tem o resto:
+   A parte "Placa virtual" tem o resto:
    - "Enviar para a rede": as linhas "Entrada 1, 2..." sao as SAIDAS do REAPER.
      Os fluxos enviados se chamam "NOME-DO-PC Virtual : 1", ": 2"... (8 canais cada).
    - "Receber da rede": escolha os fluxos e ligue os canais; eles chegam nas ENTRADAS
@@ -62,7 +66,7 @@ ATUALIZACOES
 O AoIP procura versoes novas no GitHub ao abrir e a cada 6 horas. Quando houver, aparece
 "Atualizar para vX" no topo do painel (e no menu do icone). Ao clicar, ele baixa, confere o
 arquivo e abre o instalador: feche o REAPER antes e aceite o pedido de administrador.
-Para desligar: Este computador > Configuracao > "Procurar atualizacoes no GitHub".
+Para desligar: Placa virtual > Configuracao > "Procurar atualizacoes no GitHub".
 
 PARA REMOVER
 Feche o REAPER e rode "Desinstalar.bat" (em C:\Program Files\AoIP Bridge).

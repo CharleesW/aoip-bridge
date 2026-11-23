@@ -7,7 +7,7 @@
 //! A parte de rede fica no crate `aoip-engine`; aqui fica so a placa (cpal).
 use aoip_core::state::Shared;
 use aoip_core::{ui, RATE};
-use aoip_engine::{open_browser, refresh_ifaces, refresh_status, report, report_stats, resolve_iface, selftest, start_network, Network, Res};
+use aoip_engine::{mesa, open_browser, refresh_ifaces, refresh_status, report, report_stats, resolve_iface, selftest, start_network, Network, Res};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 use std::net::TcpListener;
@@ -214,6 +214,15 @@ fn main() {
     let no_browser = args.iter().any(|a| a == "--no-browser");
     let port: u16 = args.iter().position(|a| a == "--port").and_then(|i| args.get(i + 1)?.parse().ok()).unwrap_or(8787);
     let url = format!("http://127.0.0.1:{port}");
+    // Aberto a mao: mostra a janela unica (a placa virtual passa a cuidar deste programa). Sem
+    // a placa virtual, ou em teste, o painel proprio no navegador.
+    let show = || {
+        if port == mesa::MESA_PORT && !selftest() && mesa::adopt(mesa::APP_PORT) {
+            mesa::open_window(&mesa::app_url(mesa::APP_PORT));
+        } else {
+            open_browser(&url);
+        }
+    };
 
     // Depois de um reinicio a porta pode levar um instante para liberar.
     let listener = (0..25).find_map(|_| {
@@ -223,8 +232,10 @@ fn main() {
         })
     });
     let Some(listener) = listener else {
-        // Ja esta aberto: so mostra o painel.
-        open_browser(&url);
+        // Ja esta aberto: so mostra o painel (a nao ser que outro programa o tenha aberto).
+        if !no_browser {
+            show();
+        }
         return;
     };
 
@@ -244,7 +255,7 @@ fn main() {
         report(&format!("AUTOTESTE ({}): tom de teste e relogio local; nada sai para a rede.", std::env::consts::OS));
     }
     if !no_browser {
-        open_browser(&url);
+        show();
     }
 
     let engine = match start_engine(&shared, &host) {

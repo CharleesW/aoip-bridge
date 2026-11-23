@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const PAGE: &str = include_str!("ui.html");
+const APP: &str = include_str!("app.html");
 
 /// Nome do sistema como aparece no painel.
 fn os_name() -> &'static str {
@@ -20,6 +21,11 @@ fn os_name() -> &'static str {
 }
 
 /// O painel com a versao e o sistema preenchidos, para aparecerem em qualquer captura de tela.
+pub fn app_page() -> String {
+    APP.replace("{{VERSAO}}", crate::VERSION).replace("{{SISTEMA}}", os_name())
+}
+
+/// O painel com a versao e o sistema preenchidos.
 pub fn page() -> String {
     PAGE.replace("{{VERSAO}}", crate::VERSION).replace("{{SISTEMA}}", os_name())
 }
@@ -66,6 +72,15 @@ fn handle(mut conn: TcpStream, shared: &Shared) -> std::io::Result<()> {
         (403, "text/plain", "acesso negado".to_string())
     } else if method == "GET" && path == "/" {
         (200, "text/html; charset=utf-8", page())
+    } else if method == "GET" && path == "/app" {
+        (200, "text/html; charset=utf-8", app_page())
+    } else if method == "GET" && path == "/api/ping" {
+        (200, "text/plain", "ok".to_string())
+    } else if method == "GET" && path == "/api/app" {
+        let m = shared.mesa.lock().unwrap().clone();
+        (200, "application/json", format!("{{\"mesa\":{{\"available\":{},\"wanted\":{},\"running\":{}}}}}", m.available, m.wanted, m.running))
+    } else if method == "GET" && path == "/api/diag" {
+        (200, "application/json", diag_json(shared))
     } else if method == "GET" && path == "/api/state" {
         (200, "application/json", state_json(shared))
     } else if method == "POST" && header("x-aoip").is_some() {
@@ -205,6 +220,14 @@ fn action(shared: &Shared, path: &str, query: &str) -> Result<(), String> {
             }
             return Ok(());
         }
+        "/api/app/mesa" => {
+            // Liga ou desliga o programa da mesa (o supervisor do AoIP Virtual cuida dele).
+            let on = q("on").as_deref() == Some("1");
+            shared.mesa.lock().unwrap().wanted = on;
+            shared.config.lock().unwrap().mesa_on = on;
+            shared.save();
+            return Ok(());
+        }
         "/api/update" => {
             shared.update_install.store(true, Relaxed);
             return Ok(());
@@ -221,6 +244,25 @@ fn action(shared: &Shared, path: &str, query: &str) -> Result<(), String> {
     }
     shared.save();
     Ok(())
+}
+
+/// Numeros do diagnostico. Os totais so crescem (o painel calcula por minuto); os maximos
+/// zeram a cada leitura.
+fn diag_json(shared: &Shared) -> String {
+    let t = &shared.tx_diag;
+    let g = |a: &std::sync::atomic::AtomicU64| a.load(Relaxed);
+    let z = |a: &std::sync::atomic::AtomicU64| a.swap(0, Relaxed);
+    let names = shared.config.lock().unwrap().rx.clone();
+    let (under, over) = { let st = shared.status.lock().unwrap(); (st.underruns, st.overruns) };
+    let rx: Vec<String> = shared.rx_diag.iter().zip(&names).map(|(d, n)| {
+        format!("{{\"name\":{},\"packets\":{},\"lost\":{},\"jumps\":{},\"gapUs\":{},\"under\":{},\"lastMs\":{}}}",
+            json_str(n), g(&d.packets), g(&d.lost), g(&d.jumps), z(&d.gap_us_max), g(&d.underruns), g(&d.last_ms))
+    }).collect();
+    format!(
+        "{{\"tx\":{{\"packets\":{},\"errors\":{},\"bytes\":{},\"jumps\":{},\"sendSumUs\":{},\"sendMaxUs\":{},\"wakeMaxUs\":{},\"lagMaxUs\":{},\"under\":{},\"over\":{},\"idle\":{}}},\"rx\":[{}]}}",
+        g(&t.packets), g(&t.errors), g(&t.bytes), g(&t.jumps), g(&t.send_us_sum), z(&t.send_us_max), z(&t.wake_us_max), z(&t.lag_us_max),
+        under, over, t.idle.load(Relaxed), rx.join(",")
+    )
 }
 
 fn state_json(shared: &Shared) -> String {
@@ -352,6 +394,11 @@ mod tests {
         assert_eq!(shared.tx.snapshot().to_spec(), "3>6@-6");
         assert!(post("/api/point?m=tx&i=9&o=0&db=0").starts_with("HTTP/1.1 400"));
         assert!(post("/api/rx?slot=1&name=MESA%20%3A%202").contains("true"));
+        shared.tx_diag.sent(300, 4, 4800);
+        let diag = request(port, "GET /api/diag HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        assert!(diag.contains("\"packets\":4") && diag.contains("\"sendMaxUs\":300") && diag.contains("\"rx\":["), "{diag}");
+        let again = request(port, "GET /api/diag HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        assert!(again.contains("\"sendMaxUs\":0") && again.contains("\"packets\":4"), "o maximo zera, o total fica: {again}");
         let state = request(port, "GET /api/state HTTP/1.1\r\nHost: localhost\r\n\r\n");
         assert!(state.contains("\"tx\":[[2,5,-6]]"), "{state}");
         assert!(state.contains("\"slots\":[\"\",\"MESA : 2\",\"\""), "{state}");

@@ -36,6 +36,8 @@ pub struct Config {
     pub tx_names: Vec<String>,
     /// Procurar versoes novas no GitHub.
     pub check_updates: bool,
+    /// Ligar a mesa (programa da placa de verdade) junto com este.
+    pub mesa_on: bool,
 }
 
 /// Opcoes da placa virtual.
@@ -47,7 +49,7 @@ impl Default for Config {
         Self {
             device: String::new(), iface: String::new(), name: String::new(), tx_channels: 0,
             latency_ms: 4, rate: 0, rx: vec![String::new(); RX_SLOTS], tx_map: None, rx_map: None,
-            card_channels: 32, buffer: 128, sys_audio: false, tx_names: Vec::new(), check_updates: true,
+            card_channels: 32, buffer: 128, sys_audio: false, tx_names: Vec::new(), check_updates: true, mesa_on: false,
         }
     }
 }
@@ -72,6 +74,7 @@ impl Config {
                 "buffer" => c.buffer = v.parse().ok().filter(|n| BUFFERS.contains(n)).unwrap_or(128),
                 "sys_audio" => c.sys_audio = v == "1" || v == "true",
                 "check_updates" => c.check_updates = v != "0",
+                "mesa_on" => c.mesa_on = v == "1",
                 k => {
                     if let Some(Ok(i)) = k.strip_prefix("txname").map(str::parse::<usize>) {
                         if i < MAX_CH {
@@ -103,7 +106,7 @@ impl Config {
             "device={}\niface={}\nname={}\ntx_channels={}\nlatency_ms={}\nrate={}\n",
             line(&self.device), line(&self.iface), line(&self.name), self.tx_channels, self.latency_ms, self.rate
         );
-        t += &format!("card_channels={}\nbuffer={}\nsys_audio={}\ncheck_updates={}\n", self.card_channels, self.buffer, self.sys_audio as u8, self.check_updates as u8);
+        t += &format!("card_channels={}\nbuffer={}\nsys_audio={}\ncheck_updates={}\nmesa_on={}\n", self.card_channels, self.buffer, self.sys_audio as u8, self.check_updates as u8, self.mesa_on as u8);
         for (i, n) in self.tx_names.iter().enumerate().filter(|(_, n)| !n.trim().is_empty()) {
             t += &format!("txname{i}={}\n", line(n));
         }
@@ -246,7 +249,17 @@ pub struct Flow {
     pub compatible: bool,
 }
 
+/// O programa da mesa, quando este programa e quem o liga.
+#[derive(Clone, Debug, Default)]
+pub struct Mesa {
+    /// O programa da mesa esta instalado ao lado deste.
+    pub available: bool,
+    pub wanted: bool,
+    pub running: bool,
+}
+
 pub struct Shared {
+    pub mesa: Mutex<Mesa>,
     pub config: Mutex<Config>,
     pub config_path: PathBuf,
     pub tx: MatrixCell,
@@ -281,7 +294,7 @@ impl Shared {
         let peaks = || (0..MAX_CH).map(|_| AtomicU32::new(0)).collect();
         Self {
             config: Mutex::new(config), config_path, tx: MatrixCell::new(), rx: MatrixCell::new(),
-            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), nodes: Mutex::new(vec![]), tx_diag: Default::default(),
+            mesa: Mutex::new(Mesa::default()), devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), nodes: Mutex::new(vec![]), tx_diag: Default::default(),
             rx_diag: (0..RX_SLOTS).map(|_| Default::default()).collect(), remembered: Mutex::new(vec![]), update: Mutex::new(Default::default()),
             update_check: AtomicBool::new(false), update_install: AtomicBool::new(false), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
             slot_active: Mutex::new(vec![false; RX_SLOTS]), in_peak: peaks(), rx_peak: peaks(),
@@ -337,6 +350,7 @@ mod tests {
         c.buffer = 256;
         c.sys_audio = true;
         c.tx_names = vec!["Bumbo".into(), String::new(), "Caixa".into()];
+        c.mesa_on = true;
         assert_eq!(Config::parse(&c.to_text()), c);
         assert_eq!(Config::parse("card_channels=7\nbuffer=100\n").card_channels, 32, "valor fora das opcoes volta ao padrao");
         assert_eq!(Config::parse("lixo\nlatency_ms=999\nrx9=x\n").latency_ms, 100);

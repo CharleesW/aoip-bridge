@@ -101,6 +101,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding
 .alert{display:flex;gap:var(--s2);align-items:flex-start;border:1px solid transparent;border-left:3px solid var(--err);background:var(--err-bg);color:var(--text);padding:var(--s3);border-radius:var(--r-md);margin-top:var(--s3)}
 .alert .ic{color:var(--err);margin-top:2px}
 .alert.warn{border-left-color:var(--warn);background:var(--warn-bg)}.alert.warn .ic{color:var(--warn)}
+.alert.ok{border-left-color:var(--ok);background:var(--ok-bg)}.alert.ok .ic{color:var(--ok)}
 .alert.info{border-left-color:var(--info);background:var(--info-bg)}.alert.info .ic{color:var(--info)}
 .step.info .ic{color:var(--info)}
 
@@ -112,6 +113,15 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--field);padding
 .form label.check{align-self:center}
 [hidden]{display:none!important}
 button.small{padding:3px 10px;font-size:12px}
+/* Dentro do programa (janela unica): a moldura ja mostra marca, abas e Encerrar */
+body.embed header .mark,body.embed header h1,body.embed header .ver,body.embed #quit,body.embed header .theme,body.embed .tabs{display:none}
+body.embed header{padding-block:var(--s2)}
+h3{font-size:14px;margin:var(--s4) 0 var(--s2);font-weight:600}
+table.diag{width:100%}
+table.diag th,table.diag td{width:auto;height:auto;padding:6px 10px;text-align:left;cursor:default;font:13px/1.4 var(--font-ui);color:var(--text);border-right:none;background:none;position:static;min-width:0}
+table.diag thead th{color:var(--text-2);font-size:12px}
+table.diag td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.diag .bad{color:var(--err)}table.diag .warn{color:var(--warn)}
 /* Abas */
 .tabs{display:flex;gap:var(--s1);max-width:1280px;margin:0 auto;padding:var(--s3) var(--s5) 0}
 .tabs button{border-radius:var(--r-md) var(--r-md) 0 0;border-bottom:none}
@@ -219,6 +229,7 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
 <nav class="tabs" role="tablist" aria-label="Partes do painel">
   <button role="tab" id="tabCtl" data-tab="ctl" aria-controls="ctlSec">Controller (rede)</button>
   <button role="tab" id="tabLocal" data-tab="local" aria-controls="sitSec">Este computador</button>
+  <button role="tab" id="tabDiag" data-tab="diag" aria-controls="diagSec">Diagnóstico</button>
 </nav>
 <main>
   <section id="ctlSec" role="tabpanel" aria-labelledby="tabCtl">
@@ -227,6 +238,15 @@ tbody th .m.clip::after{content:"";position:absolute;right:0;top:-2px;bottom:-2p
     <div id="ctlAlert" role="alert"></div>
     <div class="gridwrap"><table id="ctlGrid" class="ctl" aria-label="Roteamento da rede: canais enviados nas colunas, entradas nas linhas"></table></div>
     <p class="keys">Dica: com as duas máquinas fechadas, clicar no cruzamento delas liga 1 para 1 (canal 1 na entrada 1, 2 na 2...).</p>
+  </section>
+  <section id="diagSec" role="tabpanel" aria-labelledby="tabDiag" hidden>
+    <h2>Diagnóstico</h2>
+    <p class="sub">Medido neste programa, a cada 2 segundos. Os totais "por minuto" contam o último minuto com esta aba aberta.</p>
+    <div id="diagVerdict" role="status"></div>
+    <h3>Enviar para a rede</h3>
+    <div class="gridwrap"><table class="diag" id="diagTx"></table></div>
+    <h3>Receber da rede</h3>
+    <div class="gridwrap"><table class="diag" id="diagRx"></table></div>
   </section>
   <section id="sitSec" role="tabpanel" aria-labelledby="tabLocal">
     <h2>Situação</h2>
@@ -639,17 +659,72 @@ $('updBtn').onclick = async () => {
 $('fUpdNow').onclick = () => post('/api/update/check', {});
 
 // ---------------------------------------------------------------- abas
-let tab = (() => { try { return localStorage.getItem('aoip-tab') || 'ctl'; } catch (e) { return 'ctl'; } })();
+const PARAMS = new URLSearchParams(location.search), EMBED = PARAMS.get('embed') === '1';
+if (EMBED) document.body.classList.add('embed');
+let tab = EMBED && PARAMS.get('tab') ? PARAMS.get('tab') : (() => { try { return localStorage.getItem('aoip-tab') || 'ctl'; } catch (e) { return 'ctl'; } })();
 function showTab(t) {
   tab = t;
-  try { localStorage.setItem('aoip-tab', t); } catch (e) {}
+  if (!EMBED) try { localStorage.setItem('aoip-tab', t); } catch (e) {}
   for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', b.dataset.tab === t ? 'true' : 'false');
   $('ctlSec').hidden = t !== 'ctl';
+  $('diagSec').hidden = t !== 'diag';
   for (const el of [$('sitSec'), ...document.querySelectorAll('section.local')]) el.hidden = t !== 'local';
   if (S && t === 'local') { shape = {}; renderForm(); renderSlots(); renderGrids(); }
   if (S && t === 'ctl') { ctlKey = ''; renderCtl(); }
+  if (t === 'diag') diagTick();
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showTab(b.dataset.tab);
+
+// ---------------------------------------------------------------- Diagnostico
+const diagHist = []; // [{t, d}] do ultimo minuto
+let diagBusy = false;
+const n1 = (v, d) => v.toFixed(d === undefined ? 1 : d).replace('.', ',');
+async function diagTick() {
+  if (tab !== 'diag' || diagBusy) return;
+  diagBusy = true;
+  try {
+    const d = await (await fetch('/api/diag', {cache: 'no-store'})).json();
+    const t = performance.now();
+    diagHist.push({t, d});
+    while (diagHist.length > 1 && t - diagHist[0].t > 60000) diagHist.shift();
+    renderDiag(d);
+  } catch (e) { /* o estado geral ja avisa que o programa nao responde */ }
+  diagBusy = false;
+  setTimeout(diagTick, 2000);
+}
+function renderDiag(d) {
+  if (!S) return;
+  const last = diagHist[diagHist.length - 1], prev = diagHist.length > 1 ? diagHist[diagHist.length - 2] : null, first = diagHist[0];
+  const secs = prev ? (last.t - prev.t) / 1000 : 0, min = (last.t - first.t) / 60000;
+  const T = d.tx, flows = Math.max(1, Math.ceil(S.ntx / 8)) + (S.cfg.sysAudio ? 1 : 0), want = flows * 1000;
+  const rate = prev ? (T.packets - prev.d.tx.packets) / secs : 0, mb = prev ? (T.bytes - prev.d.tx.bytes) * 8 / secs / 1e6 * (T.packets ? 1 : 0) : 0;
+  const blocks = prev ? Math.max(1, (T.packets - prev.d.tx.packets) / flows) : 1, avg = prev ? (T.sendSumUs - prev.d.tx.sendSumUs) / blocks : 0;
+  const perMin = (a, b) => min > 0.05 ? Math.round((a - b) / min) : 0;
+  const jmp = perMin(T.jumps, first.d.tx.jumps), und = perMin(T.under, first.d.tx.under);
+  let why = '', kind = 'ok';
+  if (T.idle) { why = 'Nenhum programa de áudio está usando a placa virtual: o envio está em pausa para não ocupar a rede. Ele volta sozinho quando o REAPER (ou outro) abrir a placa.'; kind = 'info'; }
+  else if (!S.running || !prev) { why = 'Juntando medidas…'; kind = 'info'; }
+  else if (rate < want * 0.99 && avg > 900) { why = `Cada bloco de 1 ms está levando ${n1(avg / 1000, 2)} ms para ser enviado: o envio não acompanha. Costuma ser antivírus, firewall ou o controlador da placa de rede.`; kind = 'bad'; }
+  else if (T.wakeMaxUs > 20000) { why = `O sistema chegou a acordar este programa ${n1(T.wakeMaxUs / 1000, 0)} ms atrasado: computador ocupado ou em economia de energia.`; kind = 'bad'; }
+  else if (rate < want * 0.99) { why = `O envio está em ${Math.round(rate)} pacotes por segundo, de ${want}. Envios caros e atrasos ao acordar não explicam: pode ser perda na própria placa.`; kind = 'warn'; }
+  else if (jmp > 0 || und > 0) { why = `Envio no ritmo, mas houve ${jmp} salto(s) e ${und} falha(s) de fila por minuto.`; kind = 'warn'; }
+  else why = 'Envio no ritmo certo, sem saltos nem falhas no último minuto.';
+  $('diagVerdict').innerHTML = `<div class="alert ${kind}">${icon(kind)}<span>${esc(why)}</span></div>`;
+  const row = (k, v, cls) => `<tr><td>${k}</td><td class="num ${cls || ''}">${v}</td></tr>`;
+  $('diagTx').innerHTML = '<tbody>' + row('Ritmo do envio', T.idle ? 'em pausa' : prev ? `${Math.round(rate)} de ${want} pacotes/s` : '—', prev && !T.idle && rate < want * 0.99 ? 'bad' : '') +
+    row('Tráfego enviado', prev ? n1(mb) + ' Mb/s' : '—') +
+    row('Custo médio de cada bloco de 1 ms', prev ? Math.round(avg) + ' µs' : '—', avg > 900 ? 'bad' : avg > 500 ? 'warn' : '') +
+    row('Maior custo de um bloco (2 s)', Math.round(T.sendMaxUs) + ' µs', T.sendMaxUs > 5000 ? 'warn' : '') +
+    row('Maior atraso ao acordar (2 s)', n1(T.wakeMaxUs / 1000) + ' ms', T.wakeMaxUs > 20000 ? 'bad' : T.wakeMaxUs > 5000 ? 'warn' : '') +
+    row('Maior atraso do envio (2 s)', n1(T.lagMaxUs / 1000) + ' ms', T.lagMaxUs > 50000 ? 'bad' : T.lagMaxUs > 20000 ? 'warn' : '') +
+    row('Saltos de 100 ms (por minuto)', jmp, jmp ? 'bad' : '') + row('Falhas da fila de envio (por minuto)', und, und ? 'warn' : '') + row('Envios recusados pelo sistema (total)', T.errors, T.errors ? 'bad' : '') + '</tbody>';
+  const rows = d.rx.map((x, i) => ({x, i})).filter(({x}) => x.name);
+  $('diagRx').innerHTML = rows.length ? '<thead><tr><th>Fluxo</th><th>Situação</th><th class="num">Pacotes/s</th><th class="num">Perdidos/min</th><th class="num">Saltos de quem envia/min</th><th class="num">Maior pausa (2 s)</th><th class="num">Falhas da fila/min</th></tr></thead><tbody>' +
+    rows.map(({x, i}) => {
+      const p = prev ? prev.d.rx[i] : x, f = first.d.rx[i], pps = prev ? (x.packets - p.packets) / secs : 0, got = pps > 0;
+      return `<tr><td>${esc(x.name)}</td><td class="${got ? '' : 'bad'}">${prev ? (got ? 'chegando' : 'não chega nada') : '…'}</td><td class="num">${Math.round(pps)}</td><td class="num ${x.lost - f.lost ? 'bad' : ''}">${perMin(x.lost, f.lost)}</td><td class="num ${x.jumps - f.jumps ? 'bad' : ''}">${perMin(x.jumps, f.jumps)}</td><td class="num ${x.gapUs > 30000 ? 'warn' : ''}">${n1(x.gapUs / 1000)} ms</td><td class="num ${x.under - f.under ? 'warn' : ''}">${perMin(x.under, f.under)}</td></tr>`;
+    }).join('') + '</tbody>' : '<tbody><tr><td>Nenhum fluxo escolhido para receber.</td></tr></tbody>';
+}
 
 // ---------------------------------------------------------------- Controller
 let ctlOpen = (() => { try { return JSON.parse(localStorage.getItem('aoip-ctl-open') || '{}'); } catch (e) { return {}; } })();

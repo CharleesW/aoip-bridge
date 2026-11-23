@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AOIP-Bridge {{VERSAO}}</title>
+<script>
+// Mesmo tema do painel (guardado em aoip-theme; "sistema" segue o computador).
+(() => {
+  let t = 'system';
+  try { t = localStorage.getItem('aoip-theme') || 'system'; } catch (e) {}
+  const dark = t === 'dark' || (t === 'system' && !matchMedia('(prefers-color-scheme: light)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+})();
+</script>
+<style>
+:root{--bg:#171B21;--surface:#1E232B;--hover:#2B323C;--border:#2E3540;--text:#E8ECF0;--text-2:#A8B1BC;--text-3:#8A95A3;--ok:#4CC39A;--err:#EC7F7F;--action:#26A88B;--on-action:#0B1513;--focus:#7FD8C4}
+:root[data-theme="light"]{--bg:#F4F6F8;--surface:#FFFFFF;--hover:#EEF1F4;--border:#D5DBE2;--text:#171B21;--text-2:#4A5564;--text-3:#5F6B79;--ok:#1B7455;--err:#B03A3A;--action:#1B7F69;--on-action:#FFFFFF;--focus:#1B7F69}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:grid;grid-template-columns:212px 1fr;background:var(--bg);color:var(--text);font:14px/1.45 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+nav{display:flex;flex-direction:column;gap:2px;padding:16px 10px;border-right:1px solid var(--border);background:var(--surface)}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 14px}
+.brand svg{width:30px;height:30px}
+.brand b{display:block;font-size:15px}.brand small{color:var(--text-3);font-size:11px}
+nav button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 10px;border:0;border-radius:6px;background:none;color:var(--text-2);font:inherit;text-align:left;cursor:pointer}
+nav button:hover{background:var(--hover)}
+nav button[aria-current="page"]{background:var(--hover);color:var(--text);font-weight:600}
+nav button:focus-visible,button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--text-3);flex:none}
+.dot.on{background:var(--ok)}.dot.off{background:var(--err)}
+.sep{margin:12px 10px 4px;color:var(--text-3);font-size:11px}
+main{position:relative;min-width:0}
+iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:var(--bg)}
+.off-msg{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:12px;padding:24px;text-align:center;background:var(--bg)}
+.off-msg p{margin:0;max-width:46ch;color:var(--text-2)}
+.off-msg button{padding:9px 18px;border:0;border-radius:6px;background:var(--action);color:var(--on-action);font:600 14px/1 inherit;cursor:pointer}
+[hidden]{display:none!important}
+.foot button{margin-top:6px;border:1px solid var(--border)}.foot button.sure{border-color:var(--err);color:var(--err)}
+.foot{margin-top:auto;padding:8px 10px 0;color:var(--text-3);font-size:11px}
+</style>
+</head>
+<body>
+<nav aria-label="Partes do programa">
+  <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18H8C12.5 18 11.5 6 16 6H20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="4" cy="18" r="2.6" fill="currentColor"/><circle cx="20" cy="6" r="2.6" fill="currentColor"/><circle cx="12" cy="12" r="3" fill="#26A88B"/></svg><span><b>AOIP-Bridge</b><small>v{{VERSAO}} · {{SISTEMA}}</small></span></div>
+  <button data-v="rede">Rede (Controller)</button>
+  <button data-v="mesa"><span class="dot" id="dMesa"></span>Mesa</button>
+  <button data-v="virtual"><span class="dot" id="dVirtual"></span>Placa virtual</button>
+  <div class="sep">Diagnóstico</div>
+  <button data-v="diagMesa">Da mesa</button>
+  <button data-v="diagVirtual">Da placa virtual</button>
+  <div class="foot" id="foot"><span id="footText"></span><button id="mesaOff" hidden>Desligar a mesa</button></div>
+</nav>
+<main>
+  <iframe id="view" title="AOIP-Bridge" hidden></iframe>
+  <div class="off-msg" id="offMsg" hidden><p id="offText"></p><button id="offBtn" hidden></button></div>
+</main>
+<script>
+const Q = new URLSearchParams(location.search);
+const PORT = {mesa: +(Q.get('mesa') || 8787), virtual: +(Q.get('virtual') || 8788)};
+const $ = id => document.getElementById(id);
+const url = (who, tab) => `http://127.0.0.1:${PORT[who]}/?embed=1&tab=${tab}`;
+const up = {mesa: false, virtual: false};
+let view = (() => { try { return localStorage.getItem('aoip-view') || 'rede'; } catch (e) { return 'rede'; } })(), app = null, shown = '';
+const TARGET = {rede: null, mesa: ['mesa', 'local'], virtual: ['virtual', 'local'], diagMesa: ['mesa', 'diag'], diagVirtual: ['virtual', 'diag']};
+const NOME = {mesa: 'A mesa (placa de áudio de verdade)', virtual: 'A placa virtual'};
+
+async function alive(who) {
+  try { await fetch(`http://127.0.0.1:${PORT[who]}/api/ping`, {mode: 'no-cors', cache: 'no-store'}); return true; } catch (e) { return false; }
+}
+async function call(path, params) {
+  try { return await (await fetch(path + (params ? '?' + new URLSearchParams(params) : ''), {method: params ? 'POST' : 'GET', headers: {'X-AoIP': '1'}, cache: 'no-store'})).json(); } catch (e) { return null; }
+}
+function target() {
+  if (view !== 'rede') return TARGET[view];
+  // Rede: o Controller funciona em qualquer um dos dois; usa o que estiver ligado.
+  return up.virtual ? ['virtual', 'ctl'] : ['mesa', 'ctl'];
+}
+function paint() {
+  for (const b of document.querySelectorAll('nav button[data-v]')) {
+    if (b.dataset.v === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  }
+  $('dMesa').className = 'dot ' + (up.mesa ? 'on' : app && app.mesa && app.mesa.wanted ? 'off' : ''); $('dVirtual').className = 'dot ' + (up.virtual ? 'on' : 'off');
+  const [who, tab] = target(), on = up[who], want = on ? url(who, tab) : '';
+  $('view').hidden = !on; $('offMsg').hidden = on;
+  if (want !== shown) { shown = want; $('view').src = want || 'about:blank'; }
+  if (!on) {
+    const m = app && app.mesa;
+    $('offText').textContent = view === 'rede' ? 'Nenhum programa AOIP está ligado neste computador.' : `${NOME[who]} está desligada neste computador.` +
+      (who === 'mesa' && m && !m.available ? ' Este programa não encontrou o AoIP Bridge instalado.' : '');
+    $('offBtn').hidden = !(who === 'mesa' && m && m.available);
+    $('offBtn').textContent = 'Ligar a mesa';
+  }
+  const on2 = !!(app && app.mesa && (app.mesa.wanted || app.mesa.running));
+  $('footText').textContent = app && app.mesa && app.mesa.wanted ? 'A mesa liga junto com o programa.' : '';
+  $('mesaOff').hidden = !on2;
+}
+async function tick() {
+  [up.mesa, up.virtual, app] = await Promise.all([alive('mesa'), alive('virtual'), call('/api/app')]);
+  paint();
+}
+for (const b of document.querySelectorAll('nav button[data-v]')) b.onclick = () => { view = b.dataset.v; try { localStorage.setItem('aoip-view', view); } catch (e) {} paint(); };
+$('offBtn').onclick = async () => { $('offBtn').disabled = true; await call('/api/app/mesa', {on: 1}); setTimeout(() => { $('offBtn').disabled = false; tick(); }, 2500); };
+// Desligar corta o som da mesa na rede: pede um segundo clique.
+let sure = 0;
+$('mesaOff').onclick = async () => {
+  const b = $('mesaOff');
+  if (!sure) {
+    b.textContent = 'O som da mesa vai parar. Desligar?'; b.classList.add('sure');
+    sure = setTimeout(() => { sure = 0; b.textContent = 'Desligar a mesa'; b.classList.remove('sure'); }, 5000);
+    return;
+  }
+  clearTimeout(sure); sure = 0; b.textContent = 'Desligar a mesa'; b.classList.remove('sure'); b.disabled = true;
+  await call('/api/app/mesa', {on: 0});
+  setTimeout(() => { b.disabled = false; tick(); }, 2800);
+};
+tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>

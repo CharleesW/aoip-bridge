@@ -11,6 +11,11 @@ setlocal
 set "DEST=%ProgramFiles%\AoIP Bridge"
 set "CLSID={BA273706-2FFA-4FAD-A237-B2BE6CA92823}"
 echo == AoIP Bridge: instalacao ==
+rem Um programa so: se a mesa (placa de verdade) estava ligada, volta ligada no fim.
+set "MESA="
+tasklist /FI "IMAGENAME eq aoip-bridge.exe" 2>nul | find /I "aoip-bridge.exe" >nul && set "MESA=1"
+echo %* | find "--abrir-bridge" >nul && set "MESA=1"
+taskkill /IM aoip-winvirtual.exe /F >nul 2>&1
 taskkill /IM aoip-bridge.exe /F >nul 2>&1
 taskkill /IM aoip-winvirtual.exe /F >nul 2>&1
 if not exist "%DEST%" mkdir "%DEST%"
@@ -53,24 +58,28 @@ netsh advfirewall firewall add rule name="AoIP Bridge - Controller" dir=in actio
 
 rem Remove a instalacao antiga (versao 0.2, na pasta do usuario).
 if exist "%LOCALAPPDATA%\AoIP Bridge" rmdir /s /q "%LOCALAPPDATA%\AoIP Bridge"
-powershell -NoProfile -Command "$s=New-Object -ComObject WScript.Shell; foreach($d in @([Environment]::GetFolderPath('CommonDesktopDirectory'),[Environment]::GetFolderPath('CommonPrograms'))){ $l=$s.CreateShortcut((Join-Path $d 'AoIP Bridge.lnk')); $l.TargetPath=(Join-Path $env:ProgramFiles 'AoIP Bridge\aoip-bridge.exe'); $l.WorkingDirectory=(Join-Path $env:ProgramFiles 'AoIP Bridge'); $l.Save() }"
+powershell -NoProfile -Command "$s=New-Object -ComObject WScript.Shell; foreach($d in @([Environment]::GetFolderPath('CommonDesktopDirectory'),[Environment]::GetFolderPath('CommonPrograms'))){ $l=$s.CreateShortcut((Join-Path $d 'AoIP Bridge.lnk')); $l.TargetPath=(Join-Path $env:ProgramFiles 'AoIP Bridge\aoip-winvirtual.exe'); $l.WorkingDirectory=(Join-Path $env:ProgramFiles 'AoIP Bridge'); $l.Save() }"
 del "%USERPROFILE%\Desktop\AoIP Bridge.lnk" >nul 2>&1
-rem AoIP Virtual: atalho no menu Iniciar e iniciar com o Windows (desliga pelo icone perto do relogio).
-powershell -NoProfile -Command "$s=New-Object -ComObject WScript.Shell; $l=$s.CreateShortcut((Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'AoIP Virtual.lnk')); $l.TargetPath=(Join-Path $env:ProgramFiles 'AoIP Bridge\aoip-winvirtual.exe'); $l.Save()"
+rem Atalho antigo da placa virtual: agora e um programa so.
+del "%ProgramData%\Microsoft\Windows\Start Menu\Programs\AoIP Virtual.lnk" >nul 2>&1
+rem Usado pelo instalador para abrir o programa ja com a mesa (o explorer nao aceita argumentos).
+powershell -NoProfile -Command "$s=New-Object -ComObject WScript.Shell; $l=$s.CreateShortcut((Join-Path $env:ProgramFiles 'AoIP Bridge\Abrir com a mesa.lnk')); $l.TargetPath=(Join-Path $env:ProgramFiles 'AoIP Bridge\aoip-winvirtual.exe'); $l.Arguments='--mesa'; $l.Save()"
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AoIP Virtual" /d "\"%DEST%\aoip-winvirtual.exe\" --tray" /f >nul
 
 echo.
-rem Abre o AoIP Virtual como usuario comum (nao como administrador).
-start "" explorer.exe "%DEST%\aoip-winvirtual.exe"
-rem Atualizacao feita pelo AoIP Bridge: abre ele de novo.
-echo %* | find "--abrir-bridge" >nul && start "" explorer.exe "%DEST%\aoip-bridge.exe"
+rem Abre o programa como usuario comum (nao como administrador).
+if defined MESA (
+  start "" explorer.exe "%DEST%\Abrir com a mesa.lnk"
+) else (
+  start "" explorer.exe "%DEST%\aoip-winvirtual.exe"
+)
 
 echo INSTALACAO OK: %DEST%
 echo.
-echo O AoIP Virtual ja esta ligado: veja o icone perto do relogio (clique para os ajustes).
+echo O AoIP Bridge ja esta ligado: icone perto do relogio. Duplo clique no icone abre a janela.
 echo O driver "AoIP Bridge ASIO" ja pode ser escolhido no REAPER:
 echo   Options ^> Preferences ^> Audio ^> Device ^> Audio system: ASIO ^> ASIO Driver: AoIP Bridge ASIO
-echo O botao "ASIO Configuration" (ou o icone perto do relogio) abre o painel: http://127.0.0.1:8788
+echo O botao "ASIO Configuration" do REAPER tambem abre a janela.
 echo O Firewall do Windows ja foi liberado para o audio em rede e para o Controller.
 echo.
 rem Atualizacao automatica (--auto): fecha sozinho depois de alguns segundos.

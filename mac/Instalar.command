@@ -11,6 +11,9 @@ sudo cp -R "AoIPBridge.driver" "$HAL/" || { echo "FALHOU: nao consegui copiar o 
 sudo chown -R root:wheel "$HAL/AoIPBridge.driver"
 sudo xattr -dr com.apple.quarantine "$HAL/AoIPBridge.driver" 2>/dev/null
 mkdir -p "$HOME/Applications"
+# Um programa so: guarda se a mesa (placa de verdade) estava ligada, para religar no fim.
+MESA=""; pgrep -x aoip-bridge >/dev/null && MESA=1
+pkill -x aoip-janela 2>/dev/null
 pkill -x aoip-bridge 2>/dev/null
 rm -rf "$HOME/Applications/AoIP Bridge.app"
 cp -R "AoIP Bridge.app" "$HOME/Applications/" && xattr -dr com.apple.quarantine "$HOME/Applications/AoIP Bridge.app" 2>/dev/null
@@ -30,6 +33,7 @@ cat > "$AGENT" <<PLIST
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>1</integer>
+  <key>AbandonProcessGroup</key><true/>
   <key>ProcessType</key><string>Interactive</string>
 </dict></plist>
 PLIST
@@ -44,5 +48,6 @@ if system_profiler SPAudioDataType 2>/dev/null | grep -q "AoIP Bridge"; then
 else
   echo "Instalado, mas a placa ainda nao apareceu. Reinicie o Mac e confira em Configuracao de Audio MIDI."
 fi
-echo "Painel da placa virtual: http://127.0.0.1:8788"
-echo "Programa para placas de som de verdade: Aplicativos > AoIP Bridge (painel em http://127.0.0.1:8787)."
+[ -n "$MESA" ] && curl -s -o /dev/null -X POST -H "X-AoIP: 1" "http://127.0.0.1:8788/api/app/mesa?on=1" && echo "A mesa estava ligada: liga de novo sozinha."
+open "$HOME/Applications/AoIP Bridge.app"
+echo "Abra o programa quando quiser em: pasta pessoal > Aplicativos > AoIP Bridge."

@@ -11,7 +11,7 @@
 #![allow(non_snake_case, clippy::missing_safety_doc)]
 
 use aoip_engine::local::{self, CardClient, CardInfo};
-use aoip_engine::{open_browser, realtime_thread_for};
+use aoip_engine::{mesa, realtime_thread_for};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::Mutex;
@@ -575,7 +575,7 @@ unsafe extern "system" fn dispose_buffers(_this: *mut Driver) -> AsioError {
 }
 
 unsafe extern "system" fn control_panel(_this: *mut Driver) -> AsioError {
-    open_browser(&format!("http://127.0.0.1:{PANEL_PORT}"));
+    mesa::open_window(&mesa::app_url(PANEL_PORT));
     ASE_OK
 }
 

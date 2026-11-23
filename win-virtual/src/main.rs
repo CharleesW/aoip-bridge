@@ -10,7 +10,8 @@ mod icon;
 use aoip_core::state::Shared;
 use aoip_core::ui;
 use aoip_engine::virtual_card::VirtualCard;
-use aoip_engine::{local, open_browser, refresh_ifaces};
+use aoip_engine::mesa::{self, open_window};
+use aoip_engine::{local, refresh_ifaces};
 use std::net::TcpListener;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
@@ -19,6 +20,11 @@ use std::time::Duration;
 /// Porta do painel (a variavel AOIP_PANEL_PORT muda, para testes).
 fn panel_port() -> u16 {
     std::env::var("AOIP_PANEL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8788)
+}
+
+/// A tela do programa (mesa, placa virtual, Controller e diagnostico numa janela so).
+fn app_url() -> String {
+    mesa::app_url(panel_port())
 }
 
 /// Liga a placa virtual (rede, painel, atendimento ao driver). None = ja havia outra copia
@@ -34,7 +40,7 @@ fn start_core() -> Option<Arc<VirtualCard>> {
     let Some(panel) = panel else {
         eprintln!("painel: a porta {} ja esta em uso (outra copia aberta?)", panel_port());
         if !std::env::args().any(|a| a == "--tray") {
-            open_browser(&format!("http://127.0.0.1:{}", panel_port()));
+            open_window(&app_url());
         }
         return None;
     };
@@ -49,6 +55,12 @@ fn start_core() -> Option<Arc<VirtualCard>> {
     refresh_ifaces(&shared);
     let card = VirtualCard::new(shared.clone());
     aoip_engine::update::spawn(shared.clone(), aoip_engine::update::Program::Virtual);
+    if std::env::args().any(|a| a == "--mesa") {
+        // Atualizado com a mesa ligada (o instalador avisa): ela volta junto.
+        shared.config.lock().unwrap().mesa_on = true;
+        shared.save();
+    }
+    mesa::supervise(shared.clone(), mesa::find_exe(), mesa::MESA_PORT);
     ui::serve(shared, panel);
     match TcpListener::bind(("127.0.0.1", local::PORT)) {
         Ok(l) => local::serve(card.clone(), l),
@@ -69,6 +81,9 @@ fn start_core() -> Option<Arc<VirtualCard>> {
 fn main() {
     let Some(card) = start_core() else { return };
     win::system_audio(card.clone());
+    if !std::env::args().any(|a| a == "--tray") {
+        open_window(&app_url()); // aberto pelo atalho: ja mostra a janela
+    }
     win::tray(card);
 }
 
@@ -250,7 +265,7 @@ mod win {
             else { "Relógio: procurando…".into() };
         add_item(menu, 0, &clock, false, false);
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        add_item(menu, ID_PANEL, "Abrir painel", false, true);
+        add_item(menu, ID_PANEL, "Abrir o AOIP-Bridge", false, true);
         let upd = c.shared.update.lock().unwrap().clone();
         if upd.state == "available" {
             add_item(menu, ID_UPDATE, &format!("Atualizar para a versão {} (feche o REAPER antes)", upd.version), false, true);
@@ -278,7 +293,7 @@ mod win {
         add_item(menu, ID_SYS, "Capturar som do Windows (fluxo \"Saída de Áudio\")", cfg.sys_audio, true);
         add_item(menu, ID_BOOT, "Iniciar com o Windows", starts_with_windows(), true);
         AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-        add_item(menu, ID_QUIT, "Sair (a placa AoIP para de funcionar)", false, true);
+        add_item(menu, ID_QUIT, "Sair (a mesa e a placa virtual param)", false, true);
 
         let mut pt = POINT { x: 0, y: 0 };
         GetCursorPos(&mut pt);
@@ -292,7 +307,7 @@ mod win {
     unsafe fn command(hwnd: HWND, id: usize) {
         let c = card();
         match id {
-            ID_PANEL => open_browser(&format!("http://127.0.0.1:{}", panel_port())),
+            ID_PANEL => open_window(&app_url()),
             _ if (ID_CH..ID_CH + CARD_CHANNELS.len()).contains(&id) => c.apply(|cfg| cfg.card_channels = CARD_CHANNELS[id - ID_CH]),
             _ if (ID_BUF..ID_BUF + BUFFERS.len()).contains(&id) => c.apply(|cfg| cfg.buffer = BUFFERS[id - ID_BUF]),
             ID_44K => c.apply(|cfg| cfg.rate = 44_100),
@@ -300,7 +315,10 @@ mod win {
             ID_SYS => c.apply(|cfg| cfg.sys_audio = !cfg.sys_audio),
             ID_BOOT => set_start_with_windows(!starts_with_windows()),
             ID_UPDATE => c.shared.update_install.store(true, Relaxed),
-            ID_QUIT => quit(hwnd),
+            ID_QUIT => {
+                mesa::stop(mesa::MESA_PORT); // um programa so: sair fecha tudo
+                quit(hwnd)
+            }
             _ => {}
         }
     }
@@ -314,7 +332,7 @@ mod win {
         match msg {
             WM_TRAY => {
                 match lp as u32 {
-                    WM_LBUTTONDBLCLK => open_browser(&format!("http://127.0.0.1:{}", panel_port())),
+                    WM_LBUTTONDBLCLK => open_window(&app_url()),
                     WM_RBUTTONUP | WM_LBUTTONUP => show_menu(hwnd),
                     _ => {}
                 }
