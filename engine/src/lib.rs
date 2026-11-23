@@ -6,6 +6,7 @@ pub mod net;
 pub mod update;
 pub mod virtual_card;
 
+use aoip_core::diag::Sequence;
 use aoip_core::state::{auto_name, choose_iface, device_of_flow, note_peaks, Config, Flow, Shared, NET_RX, RX_SLOTS};
 use aoip_core::{matrix::Matrix, ptp, resample::DriftFifo, rtp, sap, sdp::Session};
 use aoip_core::{FRAMES_PER_PACKET, MAX_FLOW_CHANNELS, RATE};
@@ -45,6 +46,12 @@ pub fn report(line: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{line}");
     }
+}
+
+/// Milissegundos desde o inicio do programa (nunca 0 depois da primeira leitura).
+pub fn now_ms() -> u64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
 }
 
 /// Porta RTP dos fluxos enviados. O autoteste usa outra porta porque a 5004 pode estar
@@ -332,8 +339,13 @@ struct TxFlow {
 }
 
 /// Empacota 1 ms de audio por vez, no ritmo do relogio PTP, e anuncia via SAP.
-fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Addr, ssrc_salt: u32) -> Res<()> {
+fn spawn_tx(shared: Arc<Shared>, clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Addr, ssrc_salt: u32) -> Res<()> {
     let sock = net::sender(iface, selftest())?;
+    // Um soquete "conectado" por fluxo: o sistema resolve o destino uma vez so, e nao a cada
+    // pacote (no Windows, com antivirus e firewall, isso barateia muito cada envio).
+    let outs: Vec<std::net::UdpSocket> = flows.iter()
+        .map(|f| net::sender(iface, selftest()).and_then(|s| s.connect(f.dest).map(|_| s)))
+        .collect::<std::io::Result<_>>()?;
     let ch = fifo.lock().unwrap().channels();
     std::thread::spawn(move || {
         let ns_per_pkt = FRAMES_PER_PACKET as u128 * 1_000_000_000 / RATE as u128;
@@ -348,7 +360,9 @@ fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Ad
         let mut woke = Instant::now();
         while !clock.stop.load(Relaxed) {
             std::thread::sleep(Duration::from_micros(250));
-            TX_GAP_US.fetch_max(woke.elapsed().as_micros() as u64, Relaxed);
+            let slept = woke.elapsed().as_micros() as u64;
+            TX_GAP_US.fetch_max(slept, Relaxed);
+            shared.tx_diag.wake_us_max.fetch_max(slept, Relaxed);
             woke = Instant::now();
             let gmid = *clock.gmid.lock().unwrap();
             let (Some(now), Some(gmid)) = (clock.now(), gmid) else { continue };
@@ -364,21 +378,31 @@ fn spawn_tx(clock: Arc<Clock>, fifo: Fifo, mut flows: Vec<TxFlow>, iface: Ipv4Ad
 
             // Fora de sincronia (inicio, ou o relogio deu um salto): realinha.
             if next == 0 || now + 100_000_000 < next || now > next + 100_000_000 {
+                if next != 0 {
+                    shared.tx_diag.jumps.fetch_add(1, Relaxed);
+                }
                 next = now / ns_per_pkt * ns_per_pkt + ns_per_pkt;
             }
+            shared.tx_diag.lag_us_max.fetch_max((now.saturating_sub(next) / 1000) as u64, Relaxed);
             TX_BURST.fetch_max(((now.saturating_sub(next)) / ns_per_pkt) as u64 + 1, Relaxed);
             while next <= now {
                 fifo.lock().unwrap().pull(&mut block);
                 let ts = rtp::timestamp_from_ptp(next, RATE);
-                for f in &flows {
+                let t0 = Instant::now();
+                let (mut count, mut bytes) = (0u64, 0u64);
+                for (f, out) in flows.iter().zip(&outs) {
                     let n = f.session.channels as usize;
                     part.clear();
                     for frame in block.chunks_exact(ch) {
                         part.extend_from_slice(&frame[f.first_ch..f.first_ch + n]);
                     }
                     rtp::build(&mut pkt, f.session.pt, seq, ts, ssrc, &part);
-                    let _ = sock.send_to(&pkt, f.dest);
+                    match out.send(&pkt) {
+                        Ok(n) => (count, bytes) = (count + 1, bytes + n as u64),
+                        Err(_) => { shared.tx_diag.errors.fetch_add(1, Relaxed); }
+                    }
                 }
+                shared.tx_diag.sent(t0.elapsed().as_micros() as u64, count, bytes);
                 TX_PKTS.fetch_add(1, Relaxed);
                 seq = seq.wrapping_add(1);
                 next += ns_per_pkt;
@@ -399,8 +423,12 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
     sock.set_read_timeout(Some(Duration::from_millis(500)))?;
     std::thread::spawn(move || {
         let mut buf = [0u8; 2048];
-        let mut known: Vec<Session> = Vec::new();
-        let mut running: Vec<Option<(String, Arc<AtomicBool>)>> = (0..RX_SLOTS).map(|_| None).collect();
+        // Comeca pelos fluxos ja vistos antes de religar; o proximo anuncio confirma ou troca.
+        let mut known: Vec<(Session, Instant)> = {
+            let mine = own.lock().unwrap().clone();
+            shared.remembered.lock().unwrap().iter().filter(|s| selftest() || !mine.contains(&s.name)).map(|s| (s.clone(), Instant::now())).collect()
+        };
+        let mut running: Vec<Option<(Session, Arc<AtomicBool>)>> = (0..RX_SLOTS).map(|_| None).collect();
         let usable = |s: &Session| s.rate == RATE && (s.bits == 24 || s.bits == 16);
         let mut keep = net::Keepalive::new(sap::GROUP, iface);
         loop {
@@ -417,33 +445,39 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
                     // Os fluxos deste programa nao aparecem na lista; os de outro programa no
                     // mesmo computador aparecem (dá para receber a mesa na placa virtual).
                     if !own.lock().unwrap().contains(&s.name) || selftest() {
-                        known.retain(|k| k.name != s.name);
+                        known.retain(|(k, _)| k.name != s.name);
                         if !ann.delete {
-                            known.push(s);
+                            known.push((s, Instant::now()));
                         }
-                        known.sort_by(|a, b| a.name.cmp(&b.name));
-                        *shared.flows.lock().unwrap() = known.iter()
-                            .map(|k| Flow { name: k.name.clone(), addr: format!("{}:{}", k.group, k.port), channels: k.channels, origin: k.origin.to_string(), compatible: usable(k) })
-                            .collect();
+                        known.sort_by(|a, b| a.0.name.cmp(&b.0.name));
                     }
                 }
             }
+            // Quem parou de se anunciar ha mais de 150 s some da lista (nao fica nome velho).
+            known.retain(|(_, seen)| seen.elapsed() < Duration::from_secs(150));
+            *shared.remembered.lock().unwrap() = known.iter().map(|(k, _)| k.clone()).collect();
+            *shared.flows.lock().unwrap() = known.iter()
+                .map(|(k, _)| Flow { name: k.name.clone(), addr: format!("{}:{}", k.group, k.port), channels: k.channels, origin: k.origin.to_string(), compatible: usable(k) })
+                .collect();
             let want = shared.config.lock().unwrap().rx.clone();
             for slot in 0..RX_SLOTS {
-                let current = running[slot].as_ref().map(|r| r.0.clone()).unwrap_or_default();
-                if current != want[slot] {
+                // Mudou a escolha, ou quem envia trocou de endereco ou de formato: recomeca.
+                let keep_it = running[slot].as_ref().is_some_and(|(s, _)| {
+                    s.name == want[slot] && known.iter().all(|(k, _)| k.name != s.name || (k.group, k.port, k.origin, k.pt, k.channels, k.bits) == (s.group, s.port, s.origin, s.pt, s.channels, s.bits))
+                });
+                if !keep_it {
                     if let Some((_, stop)) = running[slot].take() {
                         stop.store(true, Relaxed);
                     }
                 }
                 if running[slot].is_none() && !want[slot].is_empty() {
-                    if let Some(s) = known.iter().find(|k| k.name == want[slot] && usable(k)) {
+                    if let Some((s, _)) = known.iter().find(|(k, _)| k.name == want[slot] && usable(k)) {
                         match net::listener(s.group, s.port, iface) {
                             Ok(sock) => {
                                 let stop = Arc::new(AtomicBool::new(false));
-                                running[slot] = Some((s.name.clone(), stop.clone()));
-                                let (s, fifo) = (s.clone(), fifos[slot].clone());
-                                std::thread::spawn(move || receive_flow(s, sock, fifo, stop, iface));
+                                running[slot] = Some((s.clone(), stop.clone()));
+                                let (s, fifo, shared) = (s.clone(), fifos[slot].clone(), shared.clone());
+                                std::thread::spawn(move || receive_flow(shared, slot, s, sock, fifo, stop, iface));
                             }
                             Err(e) => {
                                 // Tenta de novo na proxima volta; o painel mostra o motivo.
@@ -462,7 +496,10 @@ fn spawn_rx(shared: Arc<Shared>, fifos: Vec<Fifo>, iface: Ipv4Addr, clock: Arc<C
     Ok(())
 }
 
-fn receive_flow(s: Session, sock: std::net::UdpSocket, fifo: Fifo, stop: Arc<AtomicBool>, iface: Ipv4Addr) {
+fn receive_flow(shared: Arc<Shared>, slot: usize, s: Session, sock: std::net::UdpSocket, fifo: Fifo, stop: Arc<AtomicBool>, iface: Ipv4Addr) {
+    let diag = &shared.rx_diag[slot];
+    let mut order = Sequence::default();
+    let mut last_packet: Option<Instant> = None;
     let _ = sock.set_read_timeout(Some(Duration::from_millis(300)));
     let (src_ch, dst_ch) = (s.channels as usize, MAX_FLOW_CHANNELS);
     let mut buf = [0u8; 2048];
@@ -486,6 +523,15 @@ fn receive_flow(s: Session, sock: std::net::UdpSocket, fifo: Fifo, stop: Arc<Ato
         }
         samples.clear();
         rtp::decode(p.payload, s.bits, &mut samples);
+        let (lost, jumped) = order.check(p.seq, p.ts, (samples.len() / src_ch.max(1)) as u32);
+        diag.packets.fetch_add(1, Relaxed);
+        diag.lost.fetch_add(lost, Relaxed);
+        diag.jumps.fetch_add(jumped as u64, Relaxed);
+        if let Some(t) = last_packet {
+            diag.gap_us_max.fetch_max(t.elapsed().as_micros() as u64, Relaxed);
+        }
+        last_packet = Some(Instant::now());
+        diag.last_ms.store(now_ms(), Relaxed);
         // Cada fluxo ocupa sempre 8 canais na fila (os que sobram ficam mudos).
         wide.clear();
         for frame in samples.chunks_exact(src_ch) {
@@ -514,6 +560,7 @@ pub struct Network {
     group_base: u32,
     flow_base: u32,
     own: OwnFlows,
+    shared: Arc<Shared>,
 }
 
 /// Nome do fluxo a parte com o som do computador.
@@ -547,7 +594,7 @@ impl Network {
         let target = 8 * rate as usize / 1000; // 8 ms de folga: o som do computador nao e critico
         let fifo: Fifo = Arc::new(Mutex::new(DriftFifo::with_ratio(2, target, rate as f64 / RATE as f64)));
         self.own.lock().unwrap().push(name);
-        spawn_tx(self.clock.clone(), fifo.clone(), vec![flow], iface, 0x5A5A_0000)?;
+        spawn_tx(self.shared.clone(), self.clock.clone(), fifo.clone(), vec![flow], iface, 0x5A5A_0000)?;
         let mut stereo: Vec<f32> = Vec::new();
         Ok(Box::new(move |input: &[f32]| {
             let frames = input.len() / ch;
@@ -650,7 +697,7 @@ pub fn start_network(
         .map(|_| Arc::new(Mutex::new(DriftFifo::with_ratio(MAX_FLOW_CHANNELS, target, RATE as f64 / dev_rate as f64))))
         .collect();
     let own: OwnFlows = Arc::new(Mutex::new(flows.iter().map(|f| f.session.name.clone()).collect()));
-    spawn_tx(clock.clone(), tx_fifo.clone(), flows, iface, 0)?;
+    spawn_tx(shared.clone(), clock.clone(), tx_fifo.clone(), flows, iface, 0)?;
     spawn_rx(shared.clone(), rx_fifos.clone(), iface, clock.clone(), own.clone())?;
     // Controller: o AoIP Bridge usa a porta 8791 e a placa virtual a 8792 (podem estar no
     // mesmo computador). Sem a porta de comandos o resto funciona; o painel avisa.
@@ -735,7 +782,7 @@ pub fn start_network(
 
     let aux_base = if cfg.name.trim().is_empty() { auto_name(&net::computer_name(), "") } else { name.clone() };
     shared.status.lock().unwrap().aux_name = aux_flow_name(&aux_base);
-    let network = Network { clock, tx_fifo, rx_fifos, net_tx, name, aux_base, group_base: base, flow_base, own };
+    let network = Network { clock, tx_fifo, rx_fifos, net_tx, name, aux_base, group_base: base, flow_base, own, shared: shared.clone() };
     Ok((network, Box::new(capture), Box::new(playback)))
 }
 
@@ -764,6 +811,9 @@ pub fn refresh_status(shared: &Shared, n: &Network) {
         }
         None => String::new(),
     };
+    for (d, f) in shared.rx_diag.iter().zip(&n.rx_fifos) {
+        d.underruns.store(f.lock().unwrap().underruns, Relaxed);
+    }
     let mut st = shared.status.lock().unwrap();
     // Seguindo um relogio que parou de mandar medidas ha mais de 5 s: avisa (sem relogio).
     let silent = !is_self && !selftest() && n.clock.local_ns() as i64 - n.clock.last_sync.load(Relaxed) > 5_000_000_000;

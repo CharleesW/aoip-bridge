@@ -1,5 +1,6 @@
 //! Nucleo sem dependencias: tudo aqui e logica pura (sem sockets, sem audio),
 //! para poder ser testado em qualquer maquina.
+pub mod diag;
 pub mod matrix;
 pub mod ptp;
 pub mod resample;

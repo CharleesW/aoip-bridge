@@ -257,6 +257,12 @@ pub struct Shared {
     pub ifaces: Mutex<Vec<NetIface>>,
     /// Maquinas AOIP vistas na rede (Controller), inclusive esta.
     pub nodes: Mutex<Vec<crate::routing::SeenNode>>,
+    /// Diagnostico do envio e de cada fluxo recebido.
+    pub tx_diag: crate::diag::TxDiag,
+    pub rx_diag: Vec<crate::diag::RxDiag>,
+    /// Fluxos ja vistos na rede: ao religar, a recepcao volta na hora, sem esperar o proximo
+    /// anuncio (que vem a cada 10 s).
+    pub remembered: Mutex<Vec<crate::sdp::Session>>,
     /// Atualizacao pelo GitHub: situacao, e os pedidos do painel (procurar / instalar).
     pub update: Mutex<crate::update::UpdateInfo>,
     pub update_check: AtomicBool,
@@ -275,7 +281,8 @@ impl Shared {
         let peaks = || (0..MAX_CH).map(|_| AtomicU32::new(0)).collect();
         Self {
             config: Mutex::new(config), config_path, tx: MatrixCell::new(), rx: MatrixCell::new(),
-            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), nodes: Mutex::new(vec![]), update: Mutex::new(Default::default()),
+            devices: Mutex::new(vec![]), ifaces: Mutex::new(vec![]), nodes: Mutex::new(vec![]), tx_diag: Default::default(),
+            rx_diag: (0..RX_SLOTS).map(|_| Default::default()).collect(), remembered: Mutex::new(vec![]), update: Mutex::new(Default::default()),
             update_check: AtomicBool::new(false), update_install: AtomicBool::new(false), status: Mutex::new(Status::default()), flows: Mutex::new(vec![]),
             slot_active: Mutex::new(vec![false; RX_SLOTS]), in_peak: peaks(), rx_peak: peaks(),
             restart: AtomicBool::new(false), quit: AtomicBool::new(false),
